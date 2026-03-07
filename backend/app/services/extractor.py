@@ -44,12 +44,10 @@ EXTRACTION_PROMPT_TEMPLATE = (
 def get_transcript(youtube_video_id: str) -> str:
     """Fetch transcript for a YouTube video."""
     ytt_api = YouTubeTranscriptApi()
-    transcript_list = ytt_api.fetch(youtube_video_id)
+    result = ytt_api.fetch(youtube_video_id)
     parts = []
-    for entry in transcript_list:
-        timestamp = entry.start
-        text = entry.text
-        parts.append(f"[{timestamp:.1f}s] {text}")
+    for snippet in result.snippets:
+        parts.append(f"[{snippet.start:.1f}s] {snippet.text}")
     return "\n".join(parts)
 
 
@@ -66,8 +64,16 @@ def call_claude(prompt: str) -> str:
 
 def parse_claude_response(response_text: str) -> list[dict]:
     """Parse Claude's JSON response into a list of insights."""
+    # Strip markdown code fences if present
+    text = response_text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1]  # remove ```json line
+    if text.endswith("```"):
+        text = text.rsplit("```", 1)[0]
+    text = text.strip()
+
     try:
-        data = json.loads(response_text)
+        data = json.loads(text)
     except json.JSONDecodeError:
         return []
 
