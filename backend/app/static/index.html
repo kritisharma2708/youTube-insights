@@ -436,6 +436,28 @@
             line-height: 1.6;
         }
 
+        /* Source quote (verbatim transcript) */
+        .source-quote {
+            margin-top: 10px;
+            padding: 10px 12px;
+            border-left: 3px solid var(--primary);
+            background: rgba(124, 58, 237, 0.06);
+            border-radius: 0 8px 8px 0;
+            font-size: 13px;
+            font-style: italic;
+            color: rgba(255,255,255,0.6);
+            line-height: 1.6;
+        }
+        .source-quote-label {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--primary);
+            font-style: normal;
+            margin-bottom: 4px;
+        }
+
         /* Category badge (for insight detail view) */
         .category-badge {
             display: inline-block;
@@ -1101,9 +1123,14 @@
                     let html = `
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
                             <div style="font-size:12px;color:var(--muted);font-weight:500">TOP 5 THIS WEEK</div>
-                            <button class="btn-extract" onclick="runPipeline(this)" style="margin-top:0;font-size:11px;padding:6px 12px">
-                                ${ICONS.refresh} Refresh
-                            </button>
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <button class="btn-extract" onclick="loadFeed()" style="margin-top:0;font-size:11px;padding:6px 12px">
+                                    ${ICONS.refresh} Refresh
+                                </button>
+                                <button class="btn-extract" onclick="runPipeline(this)" style="margin-top:0;font-size:11px;padding:6px 12px;border-color:var(--accent);color:var(--accent)">
+                                    ${ICONS.zap} Fetch New
+                                </button>
+                            </div>
                         </div>
                         <div class="pipeline-status" id="pipelineStatus" style="margin:-10px 0 14px"></div>
                     `;
@@ -1188,6 +1215,11 @@
                                             <span class="insight-timestamp-badge">${formatTimestamp(ins.start_timestamp)}</span>
                                         </div>
                                         <div class="insight-item-text">"${escHtml(ins.insight_text)}"</div>
+                                        ${ins.source_quote ? `
+                                        <div class="source-quote">
+                                            <div class="source-quote-label">From the video</div>
+                                            "${escHtml(ins.source_quote)}"
+                                        </div>` : ''}
                                     </div>
                                 </div>
                             </div>`;
@@ -1287,6 +1319,11 @@
                                             <span class="insight-timestamp-badge">${formatTimestamp(ins.start_timestamp)}</span>
                                         </div>
                                         <div class="insight-detail-text">${escHtml(ins.insight_text)}</div>
+                                        ${ins.source_quote ? `
+                                        <div class="source-quote">
+                                            <div class="source-quote-label">From the video</div>
+                                            "${escHtml(ins.source_quote)}"
+                                        </div>` : ''}
                                         <div class="insight-detail-actions">
                                             <button class="share-btn" onclick="shareInsight(\`${escJs(ins.insight_text)}\`, \`${escJs(video.title)}\`)">
                                                 ${ICONS.share} Share

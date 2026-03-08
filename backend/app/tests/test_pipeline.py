@@ -31,7 +31,7 @@ def test_pipeline_fetches_ranks_extracts(mock_sync, mock_rank, mock_extract, db_
     mock_rank.return_value = videos[:3]  # rank returns top 3
     mock_extract.return_value = []
 
-    result = run_pipeline(db_session, top_n=3)
+    result = run_pipeline(db_session, top_n=3, extract=True)
 
     mock_sync.assert_called_once_with(db_session)
     mock_rank.assert_called_once_with(db_session, top_n=3)
@@ -71,7 +71,7 @@ def test_pipeline_skips_already_processed(mock_sync, mock_rank, mock_extract, db
     mock_rank.return_value = [v1, v2]
     mock_extract.return_value = []
 
-    result = run_pipeline(db_session, top_n=5)
+    result = run_pipeline(db_session, top_n=5, extract=True)
 
     # Should only extract for the unprocessed one
     mock_extract.assert_called_once()

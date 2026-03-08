@@ -15,7 +15,7 @@ def scheduled_pipeline_job():
     logger.info("Scheduler: starting pipeline run")
     db = SessionLocal()
     try:
-        result = run_pipeline(db, top_n=5)
+        result = run_pipeline(db, top_n=5, extract=True)
         logger.info(f"Scheduler: pipeline complete - {result}")
     except Exception as e:
         logger.error(f"Scheduler: pipeline failed - {e}")
