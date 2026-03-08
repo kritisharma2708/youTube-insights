@@ -10,8 +10,9 @@ router = APIRouter()
 @router.post("/pipeline")
 def trigger_pipeline(
     top_n: int = Query(5, ge=1, le=20),
+    extract: bool = Query(False),
     db: Session = Depends(get_db),
 ):
-    """Trigger the full pipeline: fetch, rank, and extract insights."""
-    result = run_pipeline(db, top_n=top_n)
+    """Trigger pipeline: fetch new videos and rank them. Set extract=true to also run insight extraction (slow)."""
+    result = run_pipeline(db, top_n=top_n, extract=extract)
     return result

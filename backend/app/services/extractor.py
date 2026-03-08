@@ -21,8 +21,10 @@ EXTRACTION_PROMPT_TEMPLATE = (
     "- Concise (1-3 sentences)\n"
     "- Self-contained (understandable without context)\n"
     "- Valuable (teaches something, inspires action, or captures a powerful idea)\n\n"
-    "For each insight, provide the approximate timestamp range (in seconds) "
-    "from the transcript where this insight was discussed.\n\n"
+    "For each insight, provide:\n"
+    "- The approximate timestamp range (in seconds) from the transcript\n"
+    "- A source_quote: the EXACT verbatim words from the transcript that support "
+    "this insight (copy-paste the speaker's actual words, not a paraphrase)\n\n"
     'Respond in JSON format:\n'
     '{{\n'
     '    "video_type": "podcast_interview",\n'
@@ -30,6 +32,7 @@ EXTRACTION_PROMPT_TEMPLATE = (
     '    "insights": [\n'
     '        {{\n'
     '            "insight_text": "The insight text here",\n'
+    '            "source_quote": "The exact words from the transcript...",\n'
     '            "category": "takeaway|action|quote",\n'
     '            "start_timestamp": 120.0,\n'
     '            "end_timestamp": 155.0\n'
@@ -96,6 +99,7 @@ def extract_insights(db: Session, video_id: int) -> list[Insight]:
         insight = Insight(
             video_id=video.id,
             insight_text=raw["insight_text"],
+            source_quote=raw.get("source_quote", ""),
             category=raw["category"],
             start_timestamp=raw["start_timestamp"],
             end_timestamp=raw["end_timestamp"],

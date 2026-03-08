@@ -19,6 +19,7 @@ class ChannelResponse(ChannelBase):
 class InsightResponse(BaseModel):
     id: int
     insight_text: str
+    source_quote: Optional[str] = None
     category: str
     start_timestamp: float
     end_timestamp: float

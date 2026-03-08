@@ -45,6 +45,7 @@ class Insight(Base):
     id = Column(Integer, primary_key=True, index=True)
     video_id = Column(Integer, ForeignKey("videos.id"), nullable=False)
     insight_text = Column(Text, nullable=False)
+    source_quote = Column(Text, nullable=True)  # verbatim transcript text
     category = Column(String, nullable=False)  # takeaway, action, quote
     start_timestamp = Column(Float, nullable=False)  # seconds
     end_timestamp = Column(Float, nullable=False)  # seconds
