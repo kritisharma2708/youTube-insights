@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InsightClips</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0f0f23;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: #1a1a2e;
+            padding: 20px 24px;
+            border-bottom: 1px solid #2d2d44;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 24px; font-weight: 700; }
+        .header h1 span { color: #4CAF50; }
+
+        /* Auth bar */
+        .auth-bar {
+            background: #1a1a2e;
+            padding: 12px 24px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            border-bottom: 1px solid #2d2d44;
+        }
+        .auth-bar input {
+            flex: 1;
+            max-width: 400px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #333;
+            background: #0f0f23;
+            color: #fff;
+            font-size: 13px;
+        }
+        .auth-bar input::placeholder { color: #555; }
+        .auth-status { font-size: 12px; color: #4CAF50; }
+        .auth-status.error { color: #f44336; }
+        .btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid #333;
+            background: transparent;
+            color: #fff;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .btn:hover { background: #2d2d44; }
+        .btn-primary { background: #4CAF50; border-color: #4CAF50; }
+        .btn-primary:hover { background: #45a049; }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0;
+            padding: 0 24px;
+            background: #1a1a2e;
+            border-bottom: 1px solid #2d2d44;
+        }
+        .tab {
+            padding: 14px 20px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #888;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .tab:hover { color: #ccc; }
+        .tab.active { color: #fff; border-bottom-color: #4CAF50; }
+
+        /* Content */
+        .content { max-width: 800px; margin: 0 auto; padding: 24px; }
+
+        /* Section headers */
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #2d2d44;
+        }
+
+        /* Video cards (feed) */
+        .video-card {
+            background: #1a1a2e;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 16px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+        }
+        .video-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+        .video-thumb {
+            width: 100%;
+            height: 220px;
+            object-fit: cover;
+            background: #2d2d44;
+        }
+        .video-info { padding: 16px; }
+        .video-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; line-height: 1.4; }
+        .video-channel { color: #888; font-size: 13px; margin-bottom: 8px; }
+        .video-meta { display: flex; justify-content: space-between; align-items: center; }
+        .video-views { color: #666; font-size: 12px; }
+        .video-insights { color: #4CAF50; font-size: 12px; font-weight: 600; }
+        .video-insights.pending { color: #FF9800; }
+
+        /* Status badge on card */
+        .status-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .status-badge.ready { background: #4CAF50; }
+        .status-badge.new { background: #FF9800; }
+
+        /* Extract inline button */
+        .extract-inline {
+            margin-top: 10px;
+            padding: 8px 18px;
+            border-radius: 8px;
+            border: 1px solid #4CAF50;
+            background: transparent;
+            color: #4CAF50;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .extract-inline:hover { background: #4CAF50; color: #fff; }
+        .extract-inline:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Insight thread */
+        .thread-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .back-btn {
+            background: none;
+            border: none;
+            color: #4CAF50;
+            cursor: pointer;
+            font-size: 16px;
+            padding: 8px;
+        }
+        .thread-title { font-size: 18px; font-weight: 600; }
+
+        /* Insight cards */
+        .insight-card {
+            background: #1a1a2e;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        .insight-video-placeholder {
+            width: 100%;
+            height: 200px;
+            background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+        .insight-video-placeholder .yt-link {
+            color: #4CAF50;
+            text-decoration: none;
+            font-size: 14px;
+            padding: 8px 16px;
+            border: 1px solid #4CAF50;
+            border-radius: 20px;
+            transition: all 0.2s;
+        }
+        .insight-video-placeholder .yt-link:hover { background: #4CAF50; color: #fff; }
+        .insight-video-placeholder .timestamp-label { color: #666; font-size: 12px; }
+        .insight-content { padding: 20px; }
+        .insight-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+        .category-badge {
+            padding: 5px 12px;
+            border-radius: 16px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .category-takeaway { background: #4CAF50; }
+        .category-action { background: #2196F3; }
+        .category-quote { background: #FF9800; }
+        .insight-timestamp { color: #888; font-size: 13px; }
+        .insight-text { font-size: 16px; line-height: 1.7; color: #e0e0e0; }
+        .insight-actions { margin-top: 16px; display: flex; justify-content: flex-end; }
+        .share-btn {
+            padding: 6px 16px;
+            border-radius: 20px;
+            border: 1px solid #444;
+            background: transparent;
+            color: #ccc;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        .share-btn:hover { border-color: #4CAF50; color: #4CAF50; }
+
+        /* Channels */
+        .channel-card {
+            display: flex;
+            align-items: center;
+            background: #1a1a2e;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 10px;
+        }
+        .channel-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 25px;
+            background: #4CAF50;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 20px;
+            font-weight: 700;
+            margin-right: 14px;
+            flex-shrink: 0;
+        }
+        .channel-name { font-size: 16px; font-weight: 600; }
+        .channel-handle { color: #888; font-size: 13px; margin-top: 2px; }
+
+        /* Discover - video rows */
+        .video-row {
+            display: flex;
+            align-items: center;
+            background: #1a1a2e;
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 8px;
+            transition: background 0.2s;
+        }
+        .video-row:hover { background: #2d2d44; }
+        .video-row-thumb {
+            width: 120px;
+            height: 68px;
+            border-radius: 6px;
+            object-fit: cover;
+            background: #2d2d44;
+            margin-right: 14px;
+            flex-shrink: 0;
+        }
+        .video-row-info { flex: 1; }
+        .video-row-title { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+        .video-row-channel { font-size: 12px; color: #888; }
+        .video-row-actions { flex-shrink: 0; margin-left: 12px; }
+
+        /* Loading & empty */
+        .loading, .empty {
+            text-align: center;
+            padding: 60px 20px;
+            color: #888;
+        }
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid #333;
+            border-top-color: #4CAF50;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Insight<span>Clips</span></h1>
+        <div style="display:flex;gap:10px;align-items:center">
+            <button class="btn btn-primary" onclick="runPipeline(this)" id="pipelineBtn">Run Pipeline</button>
+            <span id="pipelineStatus" style="font-size:12px;color:#888"></span>
+        </div>
+    </div>
+
+    <div class="auth-bar">
+        <input type="text" id="apiKey" placeholder="Enter your API key" value="">
+        <button class="btn btn-primary" onclick="authenticate()">Connect</button>
+        <span id="authStatus" class="auth-status"></span>
+    </div>
+
+    <div class="tabs">
+        <div class="tab active" data-tab="feed" onclick="switchTab('feed')">Top Picks</div>
+        <div class="tab" data-tab="discover" onclick="switchTab('discover')">Discover</div>
+        <div class="tab" data-tab="channels" onclick="switchTab('channels')">Channels</div>
+    </div>
+
+    <div class="content" id="content">
+        <div class="empty">
+            <p>Enter your API key above to get started</p>
+        </div>
+    </div>
+
+    <script>
+        let API_KEY = '';
+        let currentTab = 'feed';
+
+        function api(path, method = 'GET') {
+            return fetch(`/api${path}`, {
+                method,
+                headers: { 'X-API-Key': API_KEY }
+            }).then(r => {
+                if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+                return r.json();
+            });
+        }
+
+        function authenticate() {
+            API_KEY = document.getElementById('apiKey').value.trim();
+            const status = document.getElementById('authStatus');
+            api('/feed')
+                .then(() => {
+                    status.textContent = 'Connected';
+                    status.className = 'auth-status';
+                    switchTab('feed');
+                })
+                .catch(() => {
+                    status.textContent = 'Invalid key';
+                    status.className = 'auth-status error';
+                });
+        }
+
+        function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab').forEach(t => {
+                t.classList.toggle('active', t.dataset.tab === tab);
+            });
+            if (tab === 'feed') loadFeed();
+            else if (tab === 'discover') loadDiscover();
+            else if (tab === 'channels') loadChannels();
+        }
+
+        function formatViews(n) {
+            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M views';
+            if (n >= 1000) return (n / 1000).toFixed(1) + 'K views';
+            return n + ' views';
+        }
+
+        function formatTimestamp(sec) {
+            const m = Math.floor(sec / 60);
+            const s = Math.floor(sec % 60);
+            return m + ':' + s.toString().padStart(2, '0');
+        }
+
+        function categoryLabel(cat) {
+            return { takeaway: 'Key Takeaway', action: 'Action Item', quote: 'Notable Quote' }[cat] || cat;
+        }
+
+        // --- Feed: Top 5 ranked videos ---
+        function loadFeed() {
+            const c = document.getElementById('content');
+            c.innerHTML = '<div class="loading"><div class="spinner"></div>Loading top picks...</div>';
+            api('/feed')
+                .then(data => {
+                    if (data.videos.length === 0) {
+                        c.innerHTML = '<div class="empty"><p>No videos fetched yet.</p></div>';
+                        return;
+                    }
+                    c.innerHTML = '<div class="section-title">Top 5 This Week</div>' +
+                        data.videos.map(v => {
+                            const hasInsights = v.insight_count > 0;
+                            return `
+                                <div class="video-card" onclick="${hasInsights ? `loadInsights(${v.id})` : ''}">
+                                    <span class="status-badge ${hasInsights ? 'ready' : 'new'}">${hasInsights ? v.insight_count + ' insights' : 'New'}</span>
+                                    ${v.thumbnail_url ? `<img class="video-thumb" src="${v.thumbnail_url}" alt="">` : '<div class="video-thumb"></div>'}
+                                    <div class="video-info">
+                                        <div class="video-title">${escHtml(v.title)}</div>
+                                        <div class="video-channel">${escHtml(v.channel_name)}</div>
+                                        <div class="video-meta">
+                                            <span class="video-views">${formatViews(v.views)}</span>
+                                            <span class="video-insights ${hasInsights ? '' : 'pending'}">${hasInsights ? 'View insights' : 'Not yet processed'}</span>
+                                        </div>
+                                        ${!hasInsights ? `<button class="extract-inline" onclick="event.stopPropagation(); extractFromFeed(${v.id}, this)">Extract Insights</button>` : ''}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                })
+                .catch(err => { c.innerHTML = `<div class="empty">Error: ${err.message}</div>`; });
+        }
+
+        function extractFromFeed(videoId, btn) {
+            btn.disabled = true;
+            btn.textContent = 'Extracting... (this may take a minute)';
+            api(`/videos/${videoId}/extract`, 'POST')
+                .then(data => {
+                    btn.textContent = `Done! ${data.insight_count} insights`;
+                    btn.style.borderColor = '#4CAF50';
+                    btn.style.color = '#fff';
+                    btn.style.background = '#4CAF50';
+                    setTimeout(() => loadFeed(), 1500);
+                })
+                .catch(err => {
+                    btn.textContent = 'Error - click to retry';
+                    btn.disabled = false;
+                });
+        }
+
+        // --- Discover: Unprocessed videos ---
+        function loadDiscover() {
+            const c = document.getElementById('content');
+            c.innerHTML = '<div class="loading"><div class="spinner"></div>Loading videos...</div>';
+            api('/videos/unprocessed')
+                .then(data => {
+                    if (data.videos.length === 0) {
+                        c.innerHTML = '<div class="empty"><p>All videos have been processed!</p><p style="margin-top:8px;color:#666">Check the Top Picks tab for your insights.</p></div>';
+                        return;
+                    }
+                    c.innerHTML = '<div class="section-title">Unprocessed Videos</div>' +
+                        data.videos.map(v => `
+                            <div class="video-row">
+                                ${v.thumbnail_url ? `<img class="video-row-thumb" src="${v.thumbnail_url}" alt="">` : '<div class="video-row-thumb"></div>'}
+                                <div class="video-row-info">
+                                    <div class="video-row-title">${escHtml(v.title)}</div>
+                                    <div class="video-row-channel">${escHtml(v.channel_name)} · ${formatViews(v.views)}</div>
+                                </div>
+                                <div class="video-row-actions">
+                                    <button class="extract-inline" onclick="extractFromDiscover(${v.id}, this)">Extract</button>
+                                </div>
+                            </div>
+                        `).join('');
+                })
+                .catch(err => { c.innerHTML = `<div class="empty">Error: ${err.message}</div>`; });
+        }
+
+        function extractFromDiscover(videoId, btn) {
+            btn.disabled = true;
+            btn.textContent = 'Extracting...';
+            api(`/videos/${videoId}/extract`, 'POST')
+                .then(data => {
+                    btn.textContent = `${data.insight_count} insights`;
+                    btn.style.borderColor = '#4CAF50';
+                    btn.style.color = '#fff';
+                    btn.style.background = '#4CAF50';
+                    btn.onclick = () => loadInsights(videoId);
+                    btn.disabled = false;
+                })
+                .catch(err => {
+                    btn.textContent = 'Retry';
+                    btn.disabled = false;
+                });
+        }
+
+        // --- Insights ---
+        function loadInsights(videoId) {
+            const c = document.getElementById('content');
+            c.innerHTML = '<div class="loading"><div class="spinner"></div>Loading insights...</div>';
+            api(`/videos/${videoId}`)
+                .then(video => {
+                    if (video.insights.length === 0) {
+                        c.innerHTML = `
+                            <div class="thread-header">
+                                <button class="back-btn" onclick="switchTab('${currentTab}')">&larr; Back</button>
+                                <div class="thread-title">${escHtml(video.title)}</div>
+                            </div>
+                            <div class="empty">
+                                <p>No insights extracted yet.</p>
+                                <button class="extract-inline" style="margin-top:16px;font-size:14px;padding:10px 24px" onclick="extractFromFeed(${videoId}, this)">Extract Insights</button>
+                            </div>
+                        `;
+                        return;
+                    }
+                    c.innerHTML = `
+                        <div class="thread-header">
+                            <button class="back-btn" onclick="switchTab('${currentTab}')">&larr; Back</button>
+                            <div class="thread-title">${escHtml(video.title)}</div>
+                        </div>
+                        ${video.insights.map(ins => `
+                            <div class="insight-card">
+                                <div class="insight-video">
+                                    ${ins.clip_url
+                                        ? `<video src="${ins.clip_url}" controls style="width:100%;max-height:300px"></video>`
+                                        : `<div class="insight-video-placeholder">
+                                            <span class="timestamp-label">${formatTimestamp(ins.start_timestamp)} - ${formatTimestamp(ins.end_timestamp)}</span>
+                                            <a class="yt-link" href="https://youtube.com/watch?v=${video.youtube_video_id}&t=${Math.floor(ins.start_timestamp)}" target="_blank">Watch on YouTube</a>
+                                        </div>`
+                                    }
+                                </div>
+                                <div class="insight-content">
+                                    <div class="insight-header">
+                                        <span class="category-badge category-${ins.category}">${categoryLabel(ins.category)}</span>
+                                        <span class="insight-timestamp">${formatTimestamp(ins.start_timestamp)} - ${formatTimestamp(ins.end_timestamp)}</span>
+                                    </div>
+                                    <div class="insight-text">${escHtml(ins.insight_text)}</div>
+                                    <div class="insight-actions">
+                                        <button class="share-btn" onclick="shareInsight(\`${escJs(ins.insight_text)}\`, \`${escJs(video.title)}\`)">Share</button>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    `;
+                })
+                .catch(err => { c.innerHTML = `<div class="empty">Error: ${err.message}</div>`; });
+        }
+
+        // --- Pipeline ---
+        function runPipeline(btn) {
+            btn.disabled = true;
+            btn.textContent = 'Running...';
+            const status = document.getElementById('pipelineStatus');
+            status.textContent = 'Fetching videos, ranking, extracting insights...';
+            status.style.color = '#FF9800';
+
+            api('/pipeline?top_n=5', 'POST')
+                .then(data => {
+                    btn.textContent = 'Run Pipeline';
+                    btn.disabled = false;
+                    status.textContent = `Done! ${data.videos_fetched} fetched, ${data.videos_processed} processed, ${data.already_processed} skipped`;
+                    status.style.color = '#4CAF50';
+                    // Refresh current tab
+                    switchTab(currentTab);
+                })
+                .catch(err => {
+                    btn.textContent = 'Run Pipeline';
+                    btn.disabled = false;
+                    status.textContent = 'Error: ' + err.message;
+                    status.style.color = '#f44336';
+                });
+        }
+
+        function shareInsight(text, title) {
+            if (navigator.share) {
+                navigator.share({ text: text + '\n\nFrom: ' + title });
+            } else {
+                navigator.clipboard.writeText(text + '\n\nFrom: ' + title);
+                alert('Copied to clipboard!');
+            }
+        }
+
+        // --- Channels ---
+        function loadChannels() {
+            const channels = [
+                { name: "Lenny's Podcast", handle: '@LennysPodcast' },
+                { name: 'Think School', handle: '@ThinkSchool' },
+                { name: 'Dwarkesh Patel', handle: '@DwarkeshPatel' },
+            ];
+            document.getElementById('content').innerHTML = channels.map(ch => `
+                <div class="channel-card">
+                    <div class="channel-avatar">${ch.name[0]}</div>
+                    <div>
+                        <div class="channel-name">${ch.name}</div>
+                        <div class="channel-handle">${ch.handle}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function escHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function escJs(s) {
+            return s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+        }
+    </script>
+</body>
+</html>

@@ -8,7 +8,23 @@ from sqlalchemy.orm import Session
 from app.config import YOUTUBE_API_KEY
 from app.models.models import Channel, Video
 
+import re
+
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
+
+# Minimum video duration in seconds to include (filters out Shorts/Reels)
+MIN_DURATION_SECONDS = 180  # 3 minutes
+
+
+def parse_iso8601_duration(duration: str) -> int:
+    """Parse ISO 8601 duration (e.g. PT1H30M15S) to seconds."""
+    match = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", duration)
+    if not match:
+        return 0
+    hours = int(match.group(1) or 0)
+    minutes = int(match.group(2) or 0)
+    seconds = int(match.group(3) or 0)
+    return hours * 3600 + minutes * 60 + seconds
 
 
 def resolve_channel_id(handle: str) -> str | None:
@@ -92,6 +108,13 @@ def sync_channel_videos(db: Session, channel: Channel) -> list[Video]:
             continue
 
         video_stats = stats.get(vid, {})
+        duration_str = video_stats.get("duration", "")
+        duration_secs = parse_iso8601_duration(duration_str)
+
+        # Skip Shorts/Reels (videos under 3 minutes)
+        if duration_secs < MIN_DURATION_SECONDS:
+            continue
+
         video = Video(
             channel_id=channel.id,
             youtube_video_id=vid,
@@ -102,7 +125,7 @@ def sync_channel_videos(db: Session, channel: Channel) -> list[Video]:
             views=video_stats.get("views", 0),
             likes=video_stats.get("likes", 0),
             comments=video_stats.get("comments", 0),
-            duration=video_stats.get("duration", ""),
+            duration=duration_str,
             thumbnail_url=item["snippet"]["thumbnails"].get("high", {}).get("url", ""),
         )
         db.add(video)

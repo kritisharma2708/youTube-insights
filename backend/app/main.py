@@ -1,14 +1,28 @@
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI, HTTPException, Security
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
+from fastapi.staticfiles import StaticFiles
 
 from app.config import APP_API_KEY
 from app.database import Base, engine
-from app.routers import feed, videos
+from app.routers import feed, pipeline, videos
+from app.services.scheduler import start_scheduler, stop_scheduler
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="InsightClips", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app):
+    start_scheduler(interval_hours=6)
+    yield
+    stop_scheduler()
+
+
+app = FastAPI(title="InsightClips", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,8 +47,20 @@ app.include_router(
 app.include_router(
     videos.router, prefix="/api", tags=["videos"], dependencies=[Depends(verify_api_key)]
 )
+app.include_router(
+    pipeline.router, prefix="/api", tags=["pipeline"], dependencies=[Depends(verify_api_key)]
+)
+
+
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get("/")
+def serve_frontend():
+    return FileResponse(os.path.join(static_dir, "index.html"))
