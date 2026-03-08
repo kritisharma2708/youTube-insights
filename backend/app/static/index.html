@@ -2,583 +2,1463 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#121212">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="InsightClips">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
     <title>InsightClips</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            background: #0f0f23;
-            color: #fff;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            min-height: 100vh;
+        :root {
+            --bg: #121212;
+            --fg: #ffffff;
+            --card: #282828;
+            --card-hover: #333333;
+            --primary: #7c3aed;
+            --primary-fg: #ffffff;
+            --accent: #FFD700;
+            --muted: #b3b3b3;
+            --muted-dim: #404040;
+            --border: #333333;
+            --border-light: rgba(255,255,255,0.08);
+            --danger: #ef4444;
+            --success: #22c55e;
+            --radius: 12px;
+            --nav-height: 72px;
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
         }
 
-        /* Header */
-        .header {
-            background: #1a1a2e;
-            padding: 20px 24px;
-            border-bottom: 1px solid #2d2d44;
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg);
+            color: var(--fg);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+        }
+
+        /* Scrollbar hide */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Main content area */
+        #app {
+            padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 8px);
+        }
+
+        .page { display: none; }
+        .page.active { display: block; }
+
+        .page-content {
+            padding: 0 16px;
+            padding-top: calc(env(safe-area-inset-top, 0px) + 40px);
+            max-width: 480px;
+            margin: 0 auto;
+        }
+
+        /* Page headers */
+        .page-header {
+            margin-bottom: 24px;
+        }
+        .page-header h1 {
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            color: var(--fg);
+            margin-bottom: 4px;
+        }
+        .page-header p {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--muted);
+        }
+        .page-header-row {
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        .header h1 { font-size: 24px; font-weight: 700; }
-        .header h1 span { color: #4CAF50; }
 
-        /* Auth bar */
-        .auth-bar {
-            background: #1a1a2e;
-            padding: 12px 24px;
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            border-bottom: 1px solid #2d2d44;
-        }
-        .auth-bar input {
-            flex: 1;
-            max-width: 400px;
-            padding: 8px 12px;
-            border-radius: 6px;
-            border: 1px solid #333;
-            background: #0f0f23;
-            color: #fff;
-            font-size: 13px;
-        }
-        .auth-bar input::placeholder { color: #555; }
-        .auth-status { font-size: 12px; color: #4CAF50; }
-        .auth-status.error { color: #f44336; }
-        .btn {
+        /* ==================== BOTTOM NAV ==================== */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            background: rgba(25, 20, 20, 0.92);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-top: 1px solid var(--border);
             padding: 8px 16px;
-            border-radius: 8px;
-            border: 1px solid #333;
-            background: transparent;
-            color: #fff;
-            cursor: pointer;
-            font-size: 13px;
-            transition: all 0.2s;
+            padding-bottom: calc(8px + var(--safe-bottom));
         }
-        .btn:hover { background: #2d2d44; }
-        .btn-primary { background: #4CAF50; border-color: #4CAF50; }
-        .btn-primary:hover { background: #45a049; }
-
-        /* Tabs */
-        .tabs {
+        .bottom-nav ul {
             display: flex;
-            gap: 0;
-            padding: 0 24px;
-            background: #1a1a2e;
-            border-bottom: 1px solid #2d2d44;
+            justify-content: space-around;
+            list-style: none;
+            max-width: 480px;
+            margin: 0 auto;
         }
-        .tab {
-            padding: 14px 20px;
-            cursor: pointer;
-            font-size: 14px;
-            color: #888;
-            border-bottom: 2px solid transparent;
-            transition: all 0.2s;
-        }
-        .tab:hover { color: #ccc; }
-        .tab.active { color: #fff; border-bottom-color: #4CAF50; }
-
-        /* Content */
-        .content { max-width: 800px; margin: 0 auto; padding: 24px; }
-
-        /* Section headers */
-        .section-title {
-            font-size: 14px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #888;
-            margin-bottom: 16px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #2d2d44;
-        }
-
-        /* Video cards (feed) */
-        .video-card {
-            background: #1a1a2e;
-            border-radius: 12px;
-            overflow: hidden;
-            margin-bottom: 16px;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-            position: relative;
-        }
-        .video-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
-        .video-thumb {
-            width: 100%;
-            height: 220px;
-            object-fit: cover;
-            background: #2d2d44;
-        }
-        .video-info { padding: 16px; }
-        .video-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; line-height: 1.4; }
-        .video-channel { color: #888; font-size: 13px; margin-bottom: 8px; }
-        .video-meta { display: flex; justify-content: space-between; align-items: center; }
-        .video-views { color: #666; font-size: 12px; }
-        .video-insights { color: #4CAF50; font-size: 12px; font-weight: 600; }
-        .video-insights.pending { color: #FF9800; }
-
-        /* Status badge on card */
-        .status-badge {
-            position: absolute;
-            top: 12px;
-            right: 12px;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-        .status-badge.ready { background: #4CAF50; }
-        .status-badge.new { background: #FF9800; }
-
-        /* Extract inline button */
-        .extract-inline {
-            margin-top: 10px;
-            padding: 8px 18px;
-            border-radius: 8px;
-            border: 1px solid #4CAF50;
-            background: transparent;
-            color: #4CAF50;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-        .extract-inline:hover { background: #4CAF50; color: #fff; }
-        .extract-inline:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        /* Insight thread */
-        .thread-header {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 24px;
-        }
-        .back-btn {
-            background: none;
-            border: none;
-            color: #4CAF50;
-            cursor: pointer;
-            font-size: 16px;
-            padding: 8px;
-        }
-        .thread-title { font-size: 18px; font-weight: 600; }
-
-        /* Insight cards */
-        .insight-card {
-            background: #1a1a2e;
-            border-radius: 12px;
-            overflow: hidden;
-            margin-bottom: 20px;
-        }
-        .insight-video-placeholder {
-            width: 100%;
-            height: 200px;
-            background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
+        .bottom-nav li {
             display: flex;
             flex-direction: column;
+            align-items: center;
             justify-content: center;
+            gap: 4px;
+            width: 64px;
+            height: 48px;
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--muted);
+        }
+        .bottom-nav li:active { transform: scale(0.95); }
+        .bottom-nav li.active { color: var(--primary); }
+        .bottom-nav li svg {
+            width: 24px;
+            height: 24px;
+            transition: transform 0.3s;
+        }
+        .bottom-nav li.active svg { transform: scale(1.1); }
+        .bottom-nav li span {
+            font-size: 10px;
+            letter-spacing: 0.3px;
+            font-weight: 500;
+        }
+        .bottom-nav li.active span { font-weight: 600; }
+
+        /* ==================== PODCAST/VIDEO CARD ==================== */
+        .feed-card {
+            background: var(--card);
+            border-radius: var(--radius);
+            border: 1px solid var(--border-light);
+            overflow: hidden;
+            margin-bottom: 20px;
+            transition: box-shadow 0.3s;
+        }
+        .feed-card:hover { box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+
+        .feed-card-header {
+            display: flex;
+            gap: 14px;
+            padding: 16px;
+        }
+        .feed-card-thumb {
+            position: relative;
+            flex-shrink: 0;
+        }
+        .feed-card-thumb img {
+            width: 64px;
+            height: 64px;
+            border-radius: 10px;
+            object-fit: cover;
+            display: block;
+        }
+        .feed-card-thumb-placeholder {
+            width: 64px;
+            height: 64px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--primary), #a855f7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: 800;
+            color: white;
+        }
+        .play-badge {
+            position: absolute;
+            bottom: -6px;
+            right: -6px;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(124, 58, 237, 0.5);
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .play-badge:hover { transform: scale(1.1); }
+        .play-badge:active { transform: scale(0.95); }
+        .play-badge svg { width: 12px; height: 12px; fill: white; margin-left: 1px; }
+
+        .feed-card-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .feed-card-channel {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            color: var(--primary);
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .feed-card-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--fg);
+            line-height: 1.35;
+            margin-bottom: 6px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .feed-card-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--muted);
+            font-weight: 500;
+        }
+        .feed-card-meta .dot {
+            width: 3px;
+            height: 3px;
+            border-radius: 50%;
+            background: rgba(179,179,179,0.5);
+        }
+        .feed-card-meta svg { width: 12px; height: 12px; }
+
+        .feed-card-desc {
+            padding: 0 16px 12px;
+            font-size: 13px;
+            color: rgba(255,255,255,0.7);
+            line-height: 1.6;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        /* ==================== INSIGHTS ACCORDION ==================== */
+        .insights-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(0,0,0,0.2);
+            border: none;
+            border-top: 1px solid var(--border-light);
+            color: rgba(255,255,255,0.85);
+            font-size: 13px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .insights-toggle:hover { background: rgba(255,255,255,0.03); }
+        .insights-toggle-left {
+            display: flex;
             align-items: center;
             gap: 8px;
         }
-        .insight-video-placeholder .yt-link {
-            color: #4CAF50;
-            text-decoration: none;
-            font-size: 14px;
-            padding: 8px 16px;
-            border: 1px solid #4CAF50;
-            border-radius: 20px;
-            transition: all 0.2s;
+        .insights-toggle-left svg { width: 16px; height: 16px; color: var(--accent); }
+        .insights-toggle .chevron {
+            width: 16px;
+            height: 16px;
+            transition: transform 0.3s ease;
+            color: var(--muted);
         }
-        .insight-video-placeholder .yt-link:hover { background: #4CAF50; color: #fff; }
-        .insight-video-placeholder .timestamp-label { color: #666; font-size: 12px; }
-        .insight-content { padding: 20px; }
-        .insight-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-        .category-badge {
-            padding: 5px 12px;
-            border-radius: 16px;
-            font-size: 11px;
+        .insights-toggle.open .chevron { transform: rotate(180deg); }
+
+        .insights-panel {
+            display: none;
+            padding: 8px 12px 12px;
+            background: rgba(0,0,0,0.2);
+        }
+        .insights-panel.open { display: block; }
+
+        /* Individual insight item */
+        .insight-item {
+            background: rgba(40, 40, 40, 0.6);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius);
+            overflow: hidden;
+            margin-bottom: 10px;
+            transition: background 0.2s;
+        }
+        .insight-item:last-child { margin-bottom: 0; }
+        .insight-item:hover { background: var(--card); }
+
+        /* Video thumbnail area in insight item */
+        .insight-video-area {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #000;
+            cursor: pointer;
+        }
+        .insight-video-area img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.8;
+            transition: opacity 0.3s;
+        }
+        .insight-item:hover .insight-video-area img { opacity: 1; }
+        .insight-video-area .play-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .insight-video-area .play-circle {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        }
+        .insight-video-area .play-circle svg {
+            width: 20px;
+            height: 20px;
+            fill: white;
+            margin-left: 2px;
+        }
+        .insight-video-area:hover .play-circle {
+            background: var(--primary);
+            transform: scale(1.1);
+        }
+        /* Audio bars animation for playing state */
+        .audio-bars {
+            display: flex;
+            gap: 2px;
+            align-items: center;
+            justify-content: center;
+            height: 16px;
+        }
+        .audio-bars span {
+            width: 3px;
+            background: currentColor;
+            border-radius: 1px;
+            animation: audioBar 1s ease-in-out infinite;
+        }
+        .audio-bars span:nth-child(1) { height: 100%; animation-delay: 0s; }
+        .audio-bars span:nth-child(2) { height: 66%; animation-delay: 0.2s; }
+        .audio-bars span:nth-child(3) { height: 100%; animation-delay: 0.1s; }
+        @keyframes audioBar {
+            0%, 100% { transform: scaleY(1); }
+            50% { transform: scaleY(0.4); }
+        }
+
+        /* Embedded YouTube iframe */
+        .insight-video-area iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .insight-item-body {
+            display: flex;
+            gap: 12px;
+            padding: 12px;
+        }
+
+        .insight-play-btn {
+            flex-shrink: 0;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(124, 58, 237, 0.15);
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 2px;
+            text-decoration: none;
+        }
+        .insight-play-btn svg {
+            width: 14px;
+            height: 14px;
+            fill: var(--primary);
+            margin-left: 1px;
+        }
+        .insight-play-btn:hover {
+            background: var(--primary);
+        }
+        .insight-play-btn:hover svg { fill: white; }
+
+        .insight-item-content { flex: 1; min-width: 0; }
+        .insight-item-top {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+        .insight-item-title {
+            font-size: 13px;
             font-weight: 600;
+            color: rgba(255,255,255,0.9);
+            line-height: 1.35;
+        }
+        .insight-timestamp-badge {
+            font-size: 10px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            background: rgba(0,0,0,0.4);
+            color: var(--accent);
+            padding: 2px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .insight-item-text {
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        /* Category badge (for insight detail view) */
+        .category-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        .category-takeaway { background: #4CAF50; }
-        .category-action { background: #2196F3; }
-        .category-quote { background: #FF9800; }
-        .insight-timestamp { color: #888; font-size: 13px; }
-        .insight-text { font-size: 16px; line-height: 1.7; color: #e0e0e0; }
-        .insight-actions { margin-top: 16px; display: flex; justify-content: flex-end; }
-        .share-btn {
-            padding: 6px 16px;
-            border-radius: 20px;
-            border: 1px solid #444;
+        .category-takeaway { background: rgba(34,197,94,0.2); color: #4ade80; }
+        .category-action { background: rgba(59,130,246,0.2); color: #60a5fa; }
+        .category-quote { background: rgba(251,146,60,0.2); color: #fb923c; }
+
+        /* ==================== EXTRACT / ACTION BUTTONS ==================== */
+        .btn-extract {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 10px;
+            border: 1px solid var(--primary);
             background: transparent;
-            color: #ccc;
-            cursor: pointer;
+            color: var(--primary);
+            font-family: inherit;
             font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 10px;
+        }
+        .btn-extract:hover { background: var(--primary); color: white; }
+        .btn-extract:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-extract svg { width: 14px; height: 14px; }
+
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            border-radius: 12px;
+            border: none;
+            background: var(--primary);
+            color: white;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
             transition: all 0.2s;
         }
-        .share-btn:hover { border-color: #4CAF50; color: #4CAF50; }
+        .btn-primary:hover { background: #6d28d9; }
+        .btn-primary:active { transform: scale(0.97); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary svg { width: 16px; height: 16px; }
 
-        /* Channels */
-        .channel-card {
-            display: flex;
+        .btn-outline {
+            display: inline-flex;
             align-items: center;
-            background: #1a1a2e;
+            gap: 8px;
+            padding: 10px 20px;
             border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 10px;
-        }
-        .channel-avatar {
-            width: 50px;
-            height: 50px;
-            border-radius: 25px;
-            background: #4CAF50;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            font-size: 20px;
+            border: 1px solid var(--border-light);
+            background: var(--card);
+            color: var(--fg);
+            font-family: inherit;
+            font-size: 13px;
             font-weight: 700;
-            margin-right: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-outline:hover { background: rgba(255,255,255,0.05); }
+        .btn-outline svg { width: 16px; height: 16px; }
+
+        .btn-ghost {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: none;
+            background: transparent;
+            color: var(--muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-ghost:hover { color: var(--fg); background: rgba(255,255,255,0.05); }
+
+        /* ==================== DISCOVER PAGE ==================== */
+        .search-box {
+            position: relative;
+            margin-bottom: 24px;
+        }
+        .search-box svg {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 20px;
+            height: 20px;
+            color: var(--muted);
+        }
+        .search-box input {
+            width: 100%;
+            height: 48px;
+            padding: 0 16px 0 44px;
+            border-radius: 14px;
+            border: 1px solid var(--border-light);
+            background: rgba(40,40,40,0.5);
+            color: var(--fg);
+            font-family: inherit;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .search-box input::placeholder { color: var(--muted); }
+        .search-box input:focus { border-color: var(--primary); }
+
+        .section-heading {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 17px;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+        .section-heading svg { width: 20px; height: 20px; }
+
+        /* Trending horizontal scroll */
+        .trending-scroll {
+            display: flex;
+            gap: 16px;
+            overflow-x: auto;
+            padding-bottom: 16px;
+            margin: 0 -16px;
+            padding-left: 16px;
+            padding-right: 16px;
+        }
+        .trending-item {
+            flex-shrink: 0;
+            width: 140px;
+            cursor: pointer;
+        }
+        .trending-item:active { transform: scale(0.97); }
+        .trending-item-img {
+            width: 100%;
+            aspect-ratio: 1;
+            border-radius: var(--radius);
+            overflow: hidden;
+            margin-bottom: 8px;
+            position: relative;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .trending-item-img img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.5s;
+        }
+        .trending-item:hover .trending-item-img img { transform: scale(1.05); }
+        .trending-item-img::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,0.15);
+            transition: background 0.3s;
+        }
+        .trending-item:hover .trending-item-img::after { background: transparent; }
+        .trending-item h3 {
+            font-size: 13px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .trending-item p {
+            font-size: 11px;
+            color: var(--muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Category grid */
+        .category-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .category-pill {
+            padding: 16px;
+            border-radius: var(--radius);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 14px;
+            transition: transform 0.2s;
+            border: none;
+            font-family: inherit;
+        }
+        .category-pill:active { transform: scale(0.95); }
+        .category-pill svg { width: 20px; height: 20px; opacity: 0.5; }
+
+        /* ==================== CHANNELS PAGE ==================== */
+        .channel-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .channel-actions .btn-primary,
+        .channel-actions .btn-outline { flex: 1; justify-content: center; }
+
+        .channel-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: rgba(40,40,40,0.4);
+            padding: 12px;
+            border-radius: var(--radius);
+            border: 1px solid rgba(255,255,255,0.05);
+            margin-bottom: 12px;
+        }
+        .channel-row-img {
+            width: 56px;
+            height: 56px;
+            border-radius: 10px;
+            object-fit: cover;
             flex-shrink: 0;
         }
-        .channel-name { font-size: 16px; font-weight: 600; }
-        .channel-handle { color: #888; font-size: 13px; margin-top: 2px; }
-
-        /* Discover - video rows */
-        .video-row {
+        .channel-row-img-placeholder {
+            width: 56px;
+            height: 56px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--primary), #a855f7);
             display: flex;
             align-items: center;
-            background: #1a1a2e;
+            justify-content: center;
+            font-size: 22px;
+            font-weight: 800;
+            color: white;
+            flex-shrink: 0;
+        }
+        .channel-row-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .channel-row-name {
+            font-size: 15px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .channel-row-handle {
+            font-size: 12px;
+            color: var(--muted);
+        }
+        .channel-row-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        .unplayed-badge {
+            background: rgba(124, 58, 237, 0.2);
+            color: var(--primary);
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 8px;
+            border-radius: 6px;
+            min-width: 24px;
+            text-align: center;
+        }
+
+        /* ==================== INSIGHT DETAIL (thread) ==================== */
+        .thread-back {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+            cursor: pointer;
+            color: var(--primary);
+            font-size: 14px;
+            font-weight: 600;
+            background: none;
+            border: none;
+            font-family: inherit;
+            padding: 4px 0;
+        }
+        .thread-back svg { width: 20px; height: 20px; }
+
+        .thread-video-title {
+            font-size: 20px;
+            font-weight: 800;
+            margin-bottom: 6px;
+            line-height: 1.3;
+        }
+        .thread-video-meta {
+            font-size: 13px;
+            color: var(--muted);
+            margin-bottom: 24px;
+        }
+
+        .insight-detail-card {
+            background: var(--card);
+            border-radius: var(--radius);
+            overflow: hidden;
+            margin-bottom: 16px;
+            border: 1px solid var(--border-light);
+        }
+        .insight-detail-video {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #000;
+            cursor: pointer;
+        }
+        .insight-detail-video img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.75;
+            transition: opacity 0.3s;
+        }
+        .insight-detail-video:hover img { opacity: 1; }
+        .insight-detail-video .play-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .insight-detail-video .play-circle {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        }
+        .insight-detail-video .play-circle svg {
+            width: 24px;
+            height: 24px;
+            fill: white;
+            margin-left: 3px;
+        }
+        .insight-detail-video:hover .play-circle {
+            background: var(--primary);
+            transform: scale(1.1);
+        }
+        .insight-detail-video iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        .insight-detail-video .ts-overlay {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            font-size: 11px;
+            font-family: 'SF Mono', monospace;
+            background: rgba(0,0,0,0.7);
+            color: var(--accent);
+            padding: 3px 8px;
+            border-radius: 4px;
+            pointer-events: none;
+        }
+        .insight-detail-body { padding: 16px; }
+        .insight-detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .insight-detail-text {
+            font-size: 15px;
+            line-height: 1.75;
+            color: rgba(255,255,255,0.85);
+        }
+        .insight-detail-actions {
+            margin-top: 14px;
+            display: flex;
+            justify-content: flex-end;
+        }
+        .share-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            border: 1px solid var(--muted-dim);
+            background: transparent;
+            color: var(--muted);
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .share-btn:hover { border-color: var(--primary); color: var(--primary); }
+        .share-btn svg { width: 14px; height: 14px; }
+
+        /* ==================== DISCOVER VIDEO ROWS ==================== */
+        .discover-video-row {
+            display: flex;
+            align-items: center;
+            background: rgba(40,40,40,0.4);
             border-radius: 10px;
-            padding: 12px;
+            padding: 10px;
             margin-bottom: 8px;
             transition: background 0.2s;
+            border: 1px solid var(--border-light);
         }
-        .video-row:hover { background: #2d2d44; }
-        .video-row-thumb {
-            width: 120px;
-            height: 68px;
-            border-radius: 6px;
+        .discover-video-row:hover { background: var(--card); }
+        .discover-video-thumb {
+            width: 110px;
+            height: 62px;
+            border-radius: 8px;
             object-fit: cover;
-            background: #2d2d44;
-            margin-right: 14px;
+            background: var(--muted-dim);
+            margin-right: 12px;
             flex-shrink: 0;
         }
-        .video-row-info { flex: 1; }
-        .video-row-title { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
-        .video-row-channel { font-size: 12px; color: #888; }
-        .video-row-actions { flex-shrink: 0; margin-left: 12px; }
+        .discover-video-info { flex: 1; min-width: 0; }
+        .discover-video-title {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .discover-video-channel {
+            font-size: 11px;
+            color: var(--muted);
+        }
+        .discover-video-actions { flex-shrink: 0; margin-left: 10px; }
 
-        /* Loading & empty */
-        .loading, .empty {
+        /* ==================== LOADING & EMPTY STATES ==================== */
+        .loading, .empty-state {
             text-align: center;
             padding: 60px 20px;
-            color: #888;
+            color: var(--muted);
         }
         .spinner {
-            width: 32px;
-            height: 32px;
-            border: 3px solid #333;
-            border-top-color: #4CAF50;
+            width: 36px;
+            height: 36px;
+            border: 3px solid var(--muted-dim);
+            border-top-color: var(--primary);
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
             margin: 0 auto 16px;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        .empty-state p { margin-bottom: 8px; }
+        .empty-state .subtitle { color: rgba(179,179,179,0.6); font-size: 13px; }
+
+        /* ==================== PIPELINE STATUS ==================== */
+        .pipeline-status {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+        .pipeline-status.running { color: #fb923c; }
+        .pipeline-status.done { color: var(--success); }
+        .pipeline-status.error { color: var(--danger); }
+
+        /* ==================== ANIMATIONS ==================== */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-in { animation: fadeIn 0.3s ease forwards; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>Insight<span>Clips</span></h1>
-        <div style="display:flex;gap:10px;align-items:center">
-            <button class="btn btn-primary" onclick="runPipeline(this)" id="pipelineBtn">Run Pipeline</button>
-            <span id="pipelineStatus" style="font-size:12px;color:#888"></span>
+    <div id="app">
+        <!-- ===== HOME PAGE ===== -->
+        <div class="page active" id="page-home">
+            <div class="page-content">
+                <div class="page-header">
+                    <h1>Your Feed</h1>
+                    <p>Summarized for you.</p>
+                </div>
+                <div id="feed-container">
+                    <div class="loading"><div class="spinner"></div>Loading top picks...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== DISCOVER PAGE ===== -->
+        <div class="page" id="page-discover">
+            <div class="page-content">
+                <div class="page-header">
+                    <h1>Discover</h1>
+                </div>
+                <div class="search-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input type="search" placeholder="Search videos or channels..." id="discoverSearch">
+                </div>
+                <div id="discover-container"></div>
+            </div>
+        </div>
+
+        <!-- ===== CHANNELS PAGE ===== -->
+        <div class="page" id="page-channels">
+            <div class="page-content">
+                <div class="page-header page-header-row">
+                    <h1>Library</h1>
+                    <button class="btn-ghost" title="Settings">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    </button>
+                </div>
+                <div id="channels-container"></div>
+            </div>
+        </div>
+
+        <!-- ===== INSIGHT THREAD PAGE ===== -->
+        <div class="page" id="page-thread">
+            <div class="page-content">
+                <div id="thread-container"></div>
+            </div>
         </div>
     </div>
 
-    <div class="auth-bar">
-        <input type="text" id="apiKey" placeholder="Enter your API key" value="">
-        <button class="btn btn-primary" onclick="authenticate()">Connect</button>
-        <span id="authStatus" class="auth-status"></span>
-    </div>
-
-    <div class="tabs">
-        <div class="tab active" data-tab="feed" onclick="switchTab('feed')">Top Picks</div>
-        <div class="tab" data-tab="discover" onclick="switchTab('discover')">Discover</div>
-        <div class="tab" data-tab="channels" onclick="switchTab('channels')">Channels</div>
-    </div>
-
-    <div class="content" id="content">
-        <div class="empty">
-            <p>Enter your API key above to get started</p>
-        </div>
-    </div>
+    <!-- ===== BOTTOM NAV ===== -->
+    <nav class="bottom-nav">
+        <ul>
+            <li class="active" data-page="home" onclick="navigate('home')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                <span>Home</span>
+            </li>
+            <li data-page="discover" onclick="navigate('discover')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+                <span>Discover</span>
+            </li>
+            <li data-page="channels" onclick="navigate('channels')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.4"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.4"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></svg>
+                <span>Channels</span>
+            </li>
+        </ul>
+    </nav>
 
     <script>
-        let API_KEY = '';
-        let currentTab = 'feed';
+        let currentPage = 'home';
+        let previousPage = 'home';
 
+        // SVG icon templates
+        const ICONS = {
+            play: '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>',
+            sparkles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5L12 3z"/></svg>',
+            chevron: '<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>',
+            share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>',
+            back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>',
+            trending: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
+            clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+            zap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+            bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+            plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+            check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>',
+            refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>',
+        };
+
+        // --- API helper ---
         function api(path, method = 'GET') {
-            return fetch(`/api${path}`, {
-                method,
-                headers: { 'X-API-Key': API_KEY }
-            }).then(r => {
-                if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-                return r.json();
+            return fetch(`/api${path}`, { method })
+                .then(r => {
+                    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+                    return r.json();
+                });
+        }
+
+        // --- Navigation ---
+        function navigate(page) {
+            previousPage = currentPage;
+            currentPage = page;
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById(`page-${page}`).classList.add('active');
+            document.querySelectorAll('.bottom-nav li').forEach(li => {
+                li.classList.toggle('active', li.dataset.page === page);
             });
+            // Show/hide nav for thread page
+            document.querySelector('.bottom-nav').style.display = page === 'thread' ? 'none' : '';
+
+            if (page === 'home') loadFeed();
+            else if (page === 'discover') loadDiscover();
+            else if (page === 'channels') loadChannels();
+
+            window.scrollTo(0, 0);
         }
 
-        function authenticate() {
-            API_KEY = document.getElementById('apiKey').value.trim();
-            const status = document.getElementById('authStatus');
-            api('/feed')
-                .then(() => {
-                    status.textContent = 'Connected';
-                    status.className = 'auth-status';
-                    switchTab('feed');
-                })
-                .catch(() => {
-                    status.textContent = 'Invalid key';
-                    status.className = 'auth-status error';
-                });
-        }
-
-        function switchTab(tab) {
-            currentTab = tab;
-            document.querySelectorAll('.tab').forEach(t => {
-                t.classList.toggle('active', t.dataset.tab === tab);
-            });
-            if (tab === 'feed') loadFeed();
-            else if (tab === 'discover') loadDiscover();
-            else if (tab === 'channels') loadChannels();
-        }
-
-        function formatViews(n) {
-            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M views';
-            if (n >= 1000) return (n / 1000).toFixed(1) + 'K views';
-            return n + ' views';
-        }
-
-        function formatTimestamp(sec) {
-            const m = Math.floor(sec / 60);
-            const s = Math.floor(sec % 60);
-            return m + ':' + s.toString().padStart(2, '0');
-        }
-
-        function categoryLabel(cat) {
-            return { takeaway: 'Key Takeaway', action: 'Action Item', quote: 'Notable Quote' }[cat] || cat;
-        }
-
-        // --- Feed: Top 5 ranked videos ---
-        function loadFeed() {
-            const c = document.getElementById('content');
-            c.innerHTML = '<div class="loading"><div class="spinner"></div>Loading top picks...</div>';
-            api('/feed')
-                .then(data => {
-                    if (data.videos.length === 0) {
-                        c.innerHTML = '<div class="empty"><p>No videos fetched yet.</p></div>';
-                        return;
-                    }
-                    c.innerHTML = '<div class="section-title">Top 5 This Week</div>' +
-                        data.videos.map(v => {
-                            const hasInsights = v.insight_count > 0;
-                            return `
-                                <div class="video-card" onclick="${hasInsights ? `loadInsights(${v.id})` : ''}">
-                                    <span class="status-badge ${hasInsights ? 'ready' : 'new'}">${hasInsights ? v.insight_count + ' insights' : 'New'}</span>
-                                    ${v.thumbnail_url ? `<img class="video-thumb" src="${v.thumbnail_url}" alt="">` : '<div class="video-thumb"></div>'}
-                                    <div class="video-info">
-                                        <div class="video-title">${escHtml(v.title)}</div>
-                                        <div class="video-channel">${escHtml(v.channel_name)}</div>
-                                        <div class="video-meta">
-                                            <span class="video-views">${formatViews(v.views)}</span>
-                                            <span class="video-insights ${hasInsights ? '' : 'pending'}">${hasInsights ? 'View insights' : 'Not yet processed'}</span>
-                                        </div>
-                                        ${!hasInsights ? `<button class="extract-inline" onclick="event.stopPropagation(); extractFromFeed(${v.id}, this)">Extract Insights</button>` : ''}
-                                    </div>
-                                </div>
-                            `;
-                        }).join('');
-                })
-                .catch(err => { c.innerHTML = `<div class="empty">Error: ${err.message}</div>`; });
-        }
-
-        function extractFromFeed(videoId, btn) {
-            btn.disabled = true;
-            btn.textContent = 'Extracting... (this may take a minute)';
-            api(`/videos/${videoId}/extract`, 'POST')
-                .then(data => {
-                    btn.textContent = `Done! ${data.insight_count} insights`;
-                    btn.style.borderColor = '#4CAF50';
-                    btn.style.color = '#fff';
-                    btn.style.background = '#4CAF50';
-                    setTimeout(() => loadFeed(), 1500);
-                })
-                .catch(err => {
-                    btn.textContent = 'Error - click to retry';
-                    btn.disabled = false;
-                });
-        }
-
-        // --- Discover: Unprocessed videos ---
-        function loadDiscover() {
-            const c = document.getElementById('content');
-            c.innerHTML = '<div class="loading"><div class="spinner"></div>Loading videos...</div>';
-            api('/videos/unprocessed')
-                .then(data => {
-                    if (data.videos.length === 0) {
-                        c.innerHTML = '<div class="empty"><p>All videos have been processed!</p><p style="margin-top:8px;color:#666">Check the Top Picks tab for your insights.</p></div>';
-                        return;
-                    }
-                    c.innerHTML = '<div class="section-title">Unprocessed Videos</div>' +
-                        data.videos.map(v => `
-                            <div class="video-row">
-                                ${v.thumbnail_url ? `<img class="video-row-thumb" src="${v.thumbnail_url}" alt="">` : '<div class="video-row-thumb"></div>'}
-                                <div class="video-row-info">
-                                    <div class="video-row-title">${escHtml(v.title)}</div>
-                                    <div class="video-row-channel">${escHtml(v.channel_name)} · ${formatViews(v.views)}</div>
-                                </div>
-                                <div class="video-row-actions">
-                                    <button class="extract-inline" onclick="extractFromDiscover(${v.id}, this)">Extract</button>
-                                </div>
-                            </div>
-                        `).join('');
-                })
-                .catch(err => { c.innerHTML = `<div class="empty">Error: ${err.message}</div>`; });
-        }
-
-        function extractFromDiscover(videoId, btn) {
-            btn.disabled = true;
-            btn.textContent = 'Extracting...';
-            api(`/videos/${videoId}/extract`, 'POST')
-                .then(data => {
-                    btn.textContent = `${data.insight_count} insights`;
-                    btn.style.borderColor = '#4CAF50';
-                    btn.style.color = '#fff';
-                    btn.style.background = '#4CAF50';
-                    btn.onclick = () => loadInsights(videoId);
-                    btn.disabled = false;
-                })
-                .catch(err => {
-                    btn.textContent = 'Retry';
-                    btn.disabled = false;
-                });
-        }
-
-        // --- Insights ---
-        function loadInsights(videoId) {
-            const c = document.getElementById('content');
-            c.innerHTML = '<div class="loading"><div class="spinner"></div>Loading insights...</div>';
-            api(`/videos/${videoId}`)
-                .then(video => {
-                    if (video.insights.length === 0) {
-                        c.innerHTML = `
-                            <div class="thread-header">
-                                <button class="back-btn" onclick="switchTab('${currentTab}')">&larr; Back</button>
-                                <div class="thread-title">${escHtml(video.title)}</div>
-                            </div>
-                            <div class="empty">
-                                <p>No insights extracted yet.</p>
-                                <button class="extract-inline" style="margin-top:16px;font-size:14px;padding:10px 24px" onclick="extractFromFeed(${videoId}, this)">Extract Insights</button>
-                            </div>
-                        `;
-                        return;
-                    }
-                    c.innerHTML = `
-                        <div class="thread-header">
-                            <button class="back-btn" onclick="switchTab('${currentTab}')">&larr; Back</button>
-                            <div class="thread-title">${escHtml(video.title)}</div>
-                        </div>
-                        ${video.insights.map(ins => `
-                            <div class="insight-card">
-                                <div class="insight-video">
-                                    ${ins.clip_url
-                                        ? `<video src="${ins.clip_url}" controls style="width:100%;max-height:300px"></video>`
-                                        : `<div class="insight-video-placeholder">
-                                            <span class="timestamp-label">${formatTimestamp(ins.start_timestamp)} - ${formatTimestamp(ins.end_timestamp)}</span>
-                                            <a class="yt-link" href="https://youtube.com/watch?v=${video.youtube_video_id}&t=${Math.floor(ins.start_timestamp)}" target="_blank">Watch on YouTube</a>
-                                        </div>`
-                                    }
-                                </div>
-                                <div class="insight-content">
-                                    <div class="insight-header">
-                                        <span class="category-badge category-${ins.category}">${categoryLabel(ins.category)}</span>
-                                        <span class="insight-timestamp">${formatTimestamp(ins.start_timestamp)} - ${formatTimestamp(ins.end_timestamp)}</span>
-                                    </div>
-                                    <div class="insight-text">${escHtml(ins.insight_text)}</div>
-                                    <div class="insight-actions">
-                                        <button class="share-btn" onclick="shareInsight(\`${escJs(ins.insight_text)}\`, \`${escJs(video.title)}\`)">Share</button>
-                                    </div>
-                                </div>
-                            </div>
-                        `).join('')}
-                    `;
-                })
-                .catch(err => { c.innerHTML = `<div class="empty">Error: ${err.message}</div>`; });
-        }
-
-        // --- Pipeline ---
-        function runPipeline(btn) {
-            btn.disabled = true;
-            btn.textContent = 'Running...';
-            const status = document.getElementById('pipelineStatus');
-            status.textContent = 'Fetching videos, ranking, extracting insights...';
-            status.style.color = '#FF9800';
-
-            api('/pipeline?top_n=5', 'POST')
-                .then(data => {
-                    btn.textContent = 'Run Pipeline';
-                    btn.disabled = false;
-                    status.textContent = `Done! ${data.videos_fetched} fetched, ${data.videos_processed} processed, ${data.already_processed} skipped`;
-                    status.style.color = '#4CAF50';
-                    // Refresh current tab
-                    switchTab(currentTab);
-                })
-                .catch(err => {
-                    btn.textContent = 'Run Pipeline';
-                    btn.disabled = false;
-                    status.textContent = 'Error: ' + err.message;
-                    status.style.color = '#f44336';
-                });
-        }
-
-        function shareInsight(text, title) {
-            if (navigator.share) {
-                navigator.share({ text: text + '\n\nFrom: ' + title });
-            } else {
-                navigator.clipboard.writeText(text + '\n\nFrom: ' + title);
-                alert('Copied to clipboard!');
-            }
-        }
-
-        // --- Channels ---
-        function loadChannels() {
-            const channels = [
-                { name: "Lenny's Podcast", handle: '@LennysPodcast' },
-                { name: 'Think School', handle: '@ThinkSchool' },
-                { name: 'Dwarkesh Patel', handle: '@DwarkeshPatel' },
-            ];
-            document.getElementById('content').innerHTML = channels.map(ch => `
-                <div class="channel-card">
-                    <div class="channel-avatar">${ch.name[0]}</div>
-                    <div>
-                        <div class="channel-name">${ch.name}</div>
-                        <div class="channel-handle">${ch.handle}</div>
-                    </div>
-                </div>
-            `).join('');
-        }
-
+        // --- Utilities ---
         function escHtml(s) {
             const d = document.createElement('div');
             d.textContent = s;
             return d.innerHTML;
         }
-
         function escJs(s) {
             return s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+        }
+        function formatViews(n) {
+            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+            if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+            return n.toString();
+        }
+        function formatTimestamp(sec) {
+            const m = Math.floor(sec / 60);
+            const s = Math.floor(sec % 60);
+            return m + ':' + s.toString().padStart(2, '0');
+        }
+        function timeAgo(dateStr) {
+            const d = new Date(dateStr);
+            const now = new Date();
+            const diff = Math.floor((now - d) / 1000);
+            if (diff < 86400) return 'Today';
+            if (diff < 172800) return 'Yesterday';
+            const days = Math.floor(diff / 86400);
+            if (days < 7) return days + ' days ago';
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+        function parseDuration(iso) {
+            const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+            if (!m) return '';
+            const h = parseInt(m[1] || 0);
+            const min = parseInt(m[2] || 0);
+            if (h > 0) return h + 'h ' + min + 'min';
+            return min + ' min';
+        }
+        function categoryLabel(cat) {
+            return { takeaway: 'Key Takeaway', action: 'Action Item', quote: 'Notable Quote' }[cat] || cat;
+        }
+
+        // --- FEED ---
+        function loadFeed() {
+            const c = document.getElementById('feed-container');
+            c.innerHTML = '<div class="loading"><div class="spinner"></div>Loading top picks...</div>';
+            api('/feed')
+                .then(data => {
+                    if (data.videos.length === 0) {
+                        c.innerHTML = `
+                            <div class="empty-state">
+                                <p style="font-size:32px;margin-bottom:12px">&#127916;</p>
+                                <p style="font-size:16px;font-weight:600;color:var(--fg)">No videos yet</p>
+                                <p class="subtitle">Run the pipeline to fetch and process videos.</p>
+                                <button class="btn-primary" style="margin-top:20px" onclick="runPipeline(this)">
+                                    ${ICONS.refresh} Run Pipeline
+                                </button>
+                                <div class="pipeline-status" id="pipelineStatus"></div>
+                            </div>`;
+                        return;
+                    }
+                    let html = `
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                            <div style="font-size:12px;color:var(--muted);font-weight:500">TOP 5 THIS WEEK</div>
+                            <button class="btn-extract" onclick="runPipeline(this)" style="margin-top:0;font-size:11px;padding:6px 12px">
+                                ${ICONS.refresh} Refresh
+                            </button>
+                        </div>
+                        <div class="pipeline-status" id="pipelineStatus" style="margin:-10px 0 14px"></div>
+                    `;
+
+                    data.videos.forEach((v, idx) => {
+                        const hasInsights = v.insight_count > 0;
+                        html += `
+                            <div class="feed-card animate-in" style="animation-delay:${idx * 60}ms">
+                                <div class="feed-card-header">
+                                    <div class="feed-card-thumb">
+                                        ${v.thumbnail_url
+                                            ? `<img src="${v.thumbnail_url}" alt="">`
+                                            : `<div class="feed-card-thumb-placeholder">${escHtml(v.channel_name?.[0] || '?')}</div>`
+                                        }
+                                        ${hasInsights ? `<div class="play-badge" onclick="loadInsights(${v.id})">${ICONS.play}</div>` : ''}
+                                    </div>
+                                    <div class="feed-card-info">
+                                        <div class="feed-card-channel">${escHtml(v.channel_name)}</div>
+                                        <div class="feed-card-title">${escHtml(v.title)}</div>
+                                        <div class="feed-card-meta">
+                                            <span>${timeAgo(v.published_at)}</span>
+                                            <span class="dot"></span>
+                                            <span>${formatViews(v.views)} views</span>
+                                            ${v.duration ? `<span class="dot"></span><span>${ICONS.clock} ${parseDuration(v.duration)}</span>` : ''}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                ${hasInsights ? `
+                                    <button class="insights-toggle" onclick="toggleInsights(this)">
+                                        <div class="insights-toggle-left">${ICONS.sparkles} <span>${v.insight_count} Key Insights</span></div>
+                                        ${ICONS.chevron}
+                                    </button>
+                                    <div class="insights-panel" id="insights-panel-${v.id}" data-video-id="${v.id}" data-loaded="false"></div>
+                                ` : `
+                                    <div style="padding:0 16px 14px">
+                                        <button class="btn-extract" onclick="extractVideo(${v.id}, this)">
+                                            ${ICONS.zap} Extract Insights
+                                        </button>
+                                    </div>
+                                `}
+                            </div>
+                        `;
+                    });
+
+                    c.innerHTML = html;
+                })
+                .catch(err => {
+                    c.innerHTML = `<div class="empty-state"><p>Failed to load feed</p><p class="subtitle">${err.message}</p>
+                        <button class="btn-primary" style="margin-top:16px" onclick="runPipeline(this)">${ICONS.refresh} Run Pipeline</button>
+                        <div class="pipeline-status" id="pipelineStatus"></div>
+                    </div>`;
+                });
+        }
+
+        function toggleInsights(btn) {
+            const panel = btn.nextElementSibling;
+            const isOpen = panel.classList.contains('open');
+            btn.classList.toggle('open', !isOpen);
+            panel.classList.toggle('open', !isOpen);
+
+            if (!isOpen && panel.dataset.loaded === 'false') {
+                const videoId = panel.dataset.videoId;
+                panel.innerHTML = '<div style="padding:16px;text-align:center"><div class="spinner"></div></div>';
+                api(`/videos/${videoId}`)
+                    .then(video => {
+                        panel.dataset.loaded = 'true';
+                        const thumbUrl = `https://img.youtube.com/vi/${video.youtube_video_id}/hqdefault.jpg`;
+                        panel.innerHTML = video.insights.map((ins) => {
+                            return `
+                            <div class="insight-item">
+                                <div class="insight-video-area" onclick="playEmbed(this, '${video.youtube_video_id}', ${Math.floor(ins.start_timestamp)}, ${Math.floor(ins.end_timestamp)})">
+                                    <img src="${thumbUrl}" alt="">
+                                    <div class="play-overlay">
+                                        <div class="play-circle">${ICONS.play}</div>
+                                    </div>
+                                </div>
+                                <div class="insight-item-body">
+                                    <div class="insight-item-content">
+                                        <div class="insight-item-top">
+                                            <div class="insight-item-title">${escHtml(ins.insight_text).substring(0, 60)}${ins.insight_text.length > 60 ? '...' : ''}</div>
+                                            <span class="insight-timestamp-badge">${formatTimestamp(ins.start_timestamp)}</span>
+                                        </div>
+                                        <div class="insight-item-text">"${escHtml(ins.insight_text)}"</div>
+                                    </div>
+                                </div>
+                            </div>`;
+                        }).join('');
+                    })
+                    .catch(() => {
+                        panel.innerHTML = '<div style="padding:12px;color:var(--muted);text-align:center;font-size:13px">Failed to load insights</div>';
+                    });
+            }
+        }
+
+        function extractVideo(videoId, btn) {
+            btn.disabled = true;
+            btn.innerHTML = `<div class="spinner" style="width:14px;height:14px;margin:0;border-width:2px"></div> Extracting...`;
+            api(`/videos/${videoId}/extract`, 'POST')
+                .then(data => {
+                    btn.innerHTML = `${ICONS.check} ${data.insight_count} insights`;
+                    btn.style.background = 'var(--primary)';
+                    btn.style.color = 'white';
+                    btn.style.borderColor = 'var(--primary)';
+                    setTimeout(() => loadFeed(), 1200);
+                })
+                .catch(err => {
+                    btn.innerHTML = `${ICONS.zap} Retry`;
+                    btn.disabled = false;
+                });
+        }
+
+        // --- PIPELINE ---
+        function runPipeline(btn) {
+            btn.disabled = true;
+            const origHTML = btn.innerHTML;
+            btn.innerHTML = `<div class="spinner" style="width:16px;height:16px;margin:0;border-width:2px"></div> Running...`;
+            const status = document.getElementById('pipelineStatus');
+            if (status) {
+                status.textContent = 'Fetching videos, ranking, extracting insights...';
+                status.className = 'pipeline-status running';
+            }
+            api('/pipeline?top_n=5', 'POST')
+                .then(data => {
+                    btn.innerHTML = origHTML;
+                    btn.disabled = false;
+                    if (status) {
+                        status.textContent = `Done! ${data.videos_fetched} fetched, ${data.videos_processed} processed`;
+                        status.className = 'pipeline-status done';
+                    }
+                    setTimeout(() => navigate(currentPage), 800);
+                })
+                .catch(err => {
+                    btn.innerHTML = origHTML;
+                    btn.disabled = false;
+                    if (status) {
+                        status.textContent = 'Error: ' + err.message;
+                        status.className = 'pipeline-status error';
+                    }
+                });
+        }
+
+        // --- INSIGHTS THREAD ---
+        function loadInsights(videoId) {
+            navigate('thread');
+            const c = document.getElementById('thread-container');
+            c.innerHTML = '<div class="loading"><div class="spinner"></div>Loading insights...</div>';
+            api(`/videos/${videoId}`)
+                .then(video => {
+                    let html = `
+                        <button class="thread-back" onclick="navigate('${previousPage}')">
+                            ${ICONS.back} Back
+                        </button>
+                        <div class="thread-video-title">${escHtml(video.title)}</div>
+                        <div class="thread-video-meta">${escHtml(video.channel_name || '')} &middot; ${formatViews(video.views)} views</div>
+                    `;
+
+                    if (video.insights.length === 0) {
+                        html += `
+                            <div class="empty-state">
+                                <p>No insights extracted yet.</p>
+                                <button class="btn-primary" style="margin-top:16px" onclick="extractVideo(${videoId}, this)">
+                                    ${ICONS.zap} Extract Insights
+                                </button>
+                            </div>`;
+                    } else {
+                        const thumbUrl = `https://img.youtube.com/vi/${video.youtube_video_id}/hqdefault.jpg`;
+                        video.insights.forEach((ins, idx) => {
+                            html += `
+                                <div class="insight-detail-card animate-in" style="animation-delay:${idx * 80}ms">
+                                    <div class="insight-detail-video" onclick="playEmbed(this, '${video.youtube_video_id}', ${Math.floor(ins.start_timestamp)}, ${Math.floor(ins.end_timestamp)})">
+                                        <img src="${thumbUrl}" alt="">
+                                        <div class="play-overlay">
+                                            <div class="play-circle">${ICONS.play}</div>
+                                        </div>
+                                        <span class="ts-overlay">${formatTimestamp(ins.start_timestamp)} - ${formatTimestamp(ins.end_timestamp)}</span>
+                                    </div>
+                                    <div class="insight-detail-body">
+                                        <div class="insight-detail-header">
+                                            <span class="category-badge category-${ins.category}">${categoryLabel(ins.category)}</span>
+                                            <span class="insight-timestamp-badge">${formatTimestamp(ins.start_timestamp)}</span>
+                                        </div>
+                                        <div class="insight-detail-text">${escHtml(ins.insight_text)}</div>
+                                        <div class="insight-detail-actions">
+                                            <button class="share-btn" onclick="shareInsight(\`${escJs(ins.insight_text)}\`, \`${escJs(video.title)}\`)">
+                                                ${ICONS.share} Share
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                    }
+                    c.innerHTML = html;
+                })
+                .catch(err => {
+                    c.innerHTML = `
+                        <button class="thread-back" onclick="navigate('${previousPage}')">${ICONS.back} Back</button>
+                        <div class="empty-state"><p>Error: ${err.message}</p></div>`;
+                });
+        }
+
+        function shareInsight(text, title) {
+            const content = text + '\n\nFrom: ' + title + '\n\nvia InsightClips';
+            if (navigator.share) {
+                navigator.share({ text: content });
+            } else {
+                navigator.clipboard.writeText(content);
+                alert('Copied to clipboard!');
+            }
+        }
+
+        // --- YOUTUBE EMBED ---
+        function playEmbed(container, videoId, startSec, endSec) {
+            // If already has an iframe, don't re-embed
+            if (container.querySelector('iframe')) return;
+            // Replace thumbnail with YouTube iframe embed
+            // enablejsapi=1 and playsinline=1 ensure controls work within the iframe
+            const embedUrl = `https://www.youtube.com/embed/${videoId}?start=${startSec}&end=${endSec}&autoplay=1&rel=0&modestbranding=1&enablejsapi=1&playsinline=1&origin=${encodeURIComponent(window.location.origin)}`;
+            container.innerHTML = `<iframe src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen frameborder="0"></iframe>`;
+            container.style.cursor = 'default';
+            container.onclick = null;
+        }
+
+        // --- DISCOVER ---
+        function loadDiscover() {
+            const c = document.getElementById('discover-container');
+            c.innerHTML = '<div class="loading"><div class="spinner"></div>Loading videos...</div>';
+            api('/videos/unprocessed')
+                .then(data => {
+                    if (data.videos.length === 0) {
+                        c.innerHTML = `
+                            <div class="empty-state">
+                                <p style="font-size:32px;margin-bottom:12px">&#9989;</p>
+                                <p style="font-size:16px;font-weight:600;color:var(--fg)">All caught up!</p>
+                                <p class="subtitle">All videos have been processed. Check your feed.</p>
+                            </div>`;
+                        return;
+                    }
+
+                    let html = `
+                        <section style="margin-bottom:28px">
+                            <div class="section-heading" style="color:var(--accent)">
+                                ${ICONS.trending} Unprocessed Videos
+                            </div>
+                            <div style="font-size:12px;color:var(--muted);margin:-10px 0 16px">Click Extract to generate insights</div>
+                    `;
+
+                    data.videos.forEach(v => {
+                        html += `
+                            <div class="discover-video-row">
+                                ${v.thumbnail_url
+                                    ? `<img class="discover-video-thumb" src="${v.thumbnail_url}" alt="">`
+                                    : '<div class="discover-video-thumb"></div>'
+                                }
+                                <div class="discover-video-info">
+                                    <div class="discover-video-title">${escHtml(v.title)}</div>
+                                    <div class="discover-video-channel">${escHtml(v.channel_name)} &middot; ${formatViews(v.views)} views</div>
+                                </div>
+                                <div class="discover-video-actions">
+                                    <button class="btn-extract" style="margin-top:0;padding:6px 12px;font-size:11px" onclick="extractDiscover(${v.id}, this)">
+                                        ${ICONS.zap} Extract
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                    html += '</section>';
+                    c.innerHTML = html;
+                })
+                .catch(err => {
+                    c.innerHTML = `<div class="empty-state"><p>Error: ${err.message}</p></div>`;
+                });
+
+            // Wire up search
+            const searchInput = document.getElementById('discoverSearch');
+            searchInput.oninput = () => {
+                const q = searchInput.value.toLowerCase();
+                document.querySelectorAll('.discover-video-row').forEach(row => {
+                    const title = row.querySelector('.discover-video-title')?.textContent.toLowerCase() || '';
+                    const channel = row.querySelector('.discover-video-channel')?.textContent.toLowerCase() || '';
+                    row.style.display = (title.includes(q) || channel.includes(q)) ? '' : 'none';
+                });
+            };
+        }
+
+        function extractDiscover(videoId, btn) {
+            btn.disabled = true;
+            btn.innerHTML = `<div class="spinner" style="width:12px;height:12px;margin:0;border-width:2px"></div>`;
+            api(`/videos/${videoId}/extract`, 'POST')
+                .then(data => {
+                    btn.innerHTML = `${ICONS.check} ${data.insight_count}`;
+                    btn.style.background = 'var(--primary)';
+                    btn.style.color = 'white';
+                    btn.style.borderColor = 'var(--primary)';
+                    btn.onclick = () => loadInsights(videoId);
+                    btn.disabled = false;
+                })
+                .catch(err => {
+                    btn.innerHTML = `${ICONS.zap} Retry`;
+                    btn.disabled = false;
+                });
+        }
+
+        // --- CHANNELS ---
+        function loadChannels() {
+            const c = document.getElementById('channels-container');
+            // Fetch from API or use seed list
+            const channels = [
+                { name: "Lenny's Podcast", handle: '@LennysPodcast', category: 'Product & Growth' },
+                { name: 'Think School', handle: '@ThinkSchool', category: 'Business' },
+                { name: 'Dwarkesh Patel', handle: '@DwarkeshPatel', category: 'Tech & AI' },
+            ];
+
+            let html = `
+                <div class="channel-actions">
+                    <button class="btn-primary" onclick="runPipeline(this)">
+                        ${ICONS.refresh} Sync All
+                    </button>
+                    <button class="btn-outline">
+                        ${ICONS.plus} Add Channel
+                    </button>
+                </div>
+                <div class="pipeline-status" id="pipelineStatus" style="margin:-12px 0 16px"></div>
+            `;
+
+            channels.forEach(ch => {
+                const colors = ['#7c3aed', '#3b82f6', '#ef4444', '#f59e0b', '#22c55e'];
+                const color = colors[Math.abs(ch.name.charCodeAt(0)) % colors.length];
+                html += `
+                    <div class="channel-row">
+                        <div class="channel-row-img-placeholder" style="background:linear-gradient(135deg, ${color}, ${color}aa)">${ch.name[0]}</div>
+                        <div class="channel-row-info">
+                            <div class="channel-row-name">${escHtml(ch.name)}</div>
+                            <div class="channel-row-handle">${escHtml(ch.category)}</div>
+                        </div>
+                        <div class="channel-row-right">
+                            <button class="btn-ghost" style="width:32px;height:32px">
+                                ${ICONS.bell}
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            c.innerHTML = html;
+        }
+
+        // --- Init ---
+        loadFeed();
+
+        // Register service worker for PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/sw.js').catch(() => {});
         }
     </script>
 </body>

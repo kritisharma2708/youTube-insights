@@ -1,7 +1,7 @@
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Security
+from fastapi import Depends, FastAPI, HTTPException, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
@@ -34,9 +34,15 @@ app.add_middleware(
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-async def verify_api_key(api_key: str = Security(api_key_header)):
+async def verify_api_key(request: Request, api_key: str = Security(api_key_header)):
     if not APP_API_KEY:
         return  # No key configured = dev mode
+    # Allow same-origin requests from the served frontend (no API key needed)
+    referer = request.headers.get("referer", "")
+    origin = request.headers.get("origin", "")
+    host = request.headers.get("host", "")
+    if host and (referer.startswith(f"http://{host}") or referer.startswith(f"https://{host}") or origin == f"http://{host}" or origin == f"https://{host}"):
+        return
     if api_key != APP_API_KEY:
         raise HTTPException(status_code=403, detail="Invalid API key")
 
