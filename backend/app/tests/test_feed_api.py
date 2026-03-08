@@ -17,72 +17,105 @@ def test_feed_empty(client):
     assert data["page"] == 1
 
 
-def test_feed_with_videos(client, db_session):
-    channel = Channel(name="Test", youtube_handle="@feed", youtube_channel_id="UCF1")
+def test_feed_returns_top_5(client, db_session):
+    channel = Channel(name="Test", youtube_handle="@top5", youtube_channel_id="UCT5")
     db_session.add(channel)
     db_session.commit()
 
-    video = Video(
-        channel_id=channel.id,
-        youtube_video_id="feed1",
-        title="Feed Video",
-        published_at=datetime.now(timezone.utc),
-        views=5000,
-        likes=500,
-        comments=100,
-        thumbnail_url="https://img.youtube.com/vi/feed1/0.jpg",
-        rank_score=0.9,
-        processed=True,
-    )
-    db_session.add(video)
-    db_session.commit()
-
-    insight = Insight(
-        video_id=video.id,
-        insight_text="Test insight",
-        category="takeaway",
-        start_timestamp=10.0,
-        end_timestamp=30.0,
-        order=0,
-    )
-    db_session.add(insight)
+    for i in range(10):
+        video = Video(
+            channel_id=channel.id,
+            youtube_video_id=f"top{i}",
+            title=f"Video {i}",
+            published_at=datetime.now(timezone.utc),
+            views=(i + 1) * 1000,
+            rank_score=float(i),
+            processed=(i % 2 == 0),  # mix of processed and unprocessed
+        )
+        db_session.add(video)
     db_session.commit()
 
     response = client.get("/api/feed")
     assert response.status_code == 200
     data = response.json()
-    assert len(data["videos"]) == 1
-    assert data["videos"][0]["title"] == "Feed Video"
-    assert data["videos"][0]["insight_count"] == 1
-    assert data["videos"][0]["channel_name"] == "Test"
+    assert len(data["videos"]) == 5
+    # Should be sorted by rank_score desc
+    scores = [v["rank_score"] for v in data["videos"]]
+    assert scores == sorted(scores, reverse=True)
 
 
-def test_feed_pagination(client, db_session):
-    channel = Channel(name="Test", youtube_handle="@page", youtube_channel_id="UCF2")
+def test_feed_includes_unprocessed(client, db_session):
+    channel = Channel(name="Test", youtube_handle="@unp", youtube_channel_id="UCU1")
     db_session.add(channel)
     db_session.commit()
 
-    for i in range(15):
-        video = Video(
-            channel_id=channel.id,
-            youtube_video_id=f"page{i}",
-            title=f"Video {i}",
-            published_at=datetime.now(timezone.utc),
-            rank_score=float(15 - i),
-            processed=True,
-        )
-        db_session.add(video)
+    video = Video(
+        channel_id=channel.id,
+        youtube_video_id="unprocessed1",
+        title="Unprocessed Video",
+        published_at=datetime.now(timezone.utc),
+        rank_score=5.0,
+        processed=False,
+    )
+    db_session.add(video)
     db_session.commit()
 
-    response = client.get("/api/feed?page=1&per_page=10")
+    response = client.get("/api/feed")
     data = response.json()
-    assert len(data["videos"]) == 10
-    assert data["page"] == 1
-    assert data["total_pages"] == 2
+    assert len(data["videos"]) == 1
+    assert data["videos"][0]["title"] == "Unprocessed Video"
+    assert data["videos"][0]["insight_count"] == 0
 
-    response = client.get("/api/feed?page=2&per_page=10")
+
+def test_unprocessed_endpoint(client, db_session):
+    channel = Channel(name="Test", youtube_handle="@disc", youtube_channel_id="UCD1")
+    db_session.add(channel)
+    db_session.commit()
+
+    processed = Video(
+        channel_id=channel.id,
+        youtube_video_id="proc1",
+        title="Processed",
+        published_at=datetime.now(timezone.utc),
+        rank_score=3.0,
+        processed=True,
+    )
+    unprocessed = Video(
+        channel_id=channel.id,
+        youtube_video_id="unproc1",
+        title="Unprocessed",
+        published_at=datetime.now(timezone.utc),
+        rank_score=2.0,
+        processed=False,
+    )
+    db_session.add_all([processed, unprocessed])
+    db_session.commit()
+
+    response = client.get("/api/videos/unprocessed")
+    assert response.status_code == 200
     data = response.json()
-    assert len(data["videos"]) == 5
+    assert len(data["videos"]) == 1
+    assert data["videos"][0]["title"] == "Unprocessed"
+
+
+def test_unprocessed_empty_when_all_processed(client, db_session):
+    channel = Channel(name="Test", youtube_handle="@all", youtube_channel_id="UCA1")
+    db_session.add(channel)
+    db_session.commit()
+
+    video = Video(
+        channel_id=channel.id,
+        youtube_video_id="allproc",
+        title="All Processed",
+        published_at=datetime.now(timezone.utc),
+        processed=True,
+    )
+    db_session.add(video)
+    db_session.commit()
+
+    response = client.get("/api/videos/unprocessed")
+    data = response.json()
+    assert data["videos"] == []
 
 
 def test_get_video_with_insights(client, db_session):
