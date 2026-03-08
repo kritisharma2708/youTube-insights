@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -6,6 +8,8 @@ from app.models.models import Video
 from app.schemas.schemas import VideoResponse
 from app.services.extractor import extract_insights
 from app.services.clip_generator import generate_clips_for_video
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -26,8 +30,12 @@ def extract_video_insights(video_id: int, db: Session = Depends(get_db)):
     if video.processed:
         return {"message": "Already processed", "insight_count": len(video.insights)}
 
-    insights = extract_insights(db, video_id)
-    return {"message": "Insights extracted", "insight_count": len(insights)}
+    try:
+        insights = extract_insights(db, video_id)
+        return {"message": "Insights extracted", "insight_count": len(insights)}
+    except Exception as e:
+        logger.error(f"Extraction failed for video {video_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/videos/{video_id}/clips")
