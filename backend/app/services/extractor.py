@@ -1,11 +1,15 @@
 import json
+import logging
 
 import anthropic
+import requests
 from youtube_transcript_api import YouTubeTranscriptApi
 from sqlalchemy.orm import Session
 
-from app.config import ANTHROPIC_API_KEY
+from app.config import ANTHROPIC_API_KEY, TRANSCRIPT_PROXY_URL
 from app.models.models import Video, Insight
+
+logger = logging.getLogger(__name__)
 
 EXTRACTION_PROMPT_TEMPLATE = (
     "You are an expert content analyst. Analyze the following video transcript "
@@ -44,9 +48,41 @@ EXTRACTION_PROMPT_TEMPLATE = (
 )
 
 
+class ProxiedSession(requests.Session):
+    """A requests.Session that routes all requests through a Cloudflare Worker proxy."""
+
+    def __init__(self, proxy_url: str):
+        super().__init__()
+        self.proxy_url = proxy_url.rstrip("/")
+
+    def request(self, method, url, **kwargs):
+        # Route all YouTube requests through the proxy worker
+        if self.proxy_url and "youtube.com" in url:
+            encoded_url = requests.utils.quote(url, safe="")
+            proxied_url = f"{self.proxy_url}?url={encoded_url}&method={method.upper()}"
+            # For POST requests, pass the body as a query param
+            if method.upper() == "POST" and "data" in kwargs:
+                body = kwargs.pop("data", "")
+                if isinstance(body, bytes):
+                    body = body.decode("utf-8")
+                proxied_url += f"&body={requests.utils.quote(str(body), safe='')}"
+            elif method.upper() == "POST" and "json" in kwargs:
+                import json as json_mod
+                body = json_mod.dumps(kwargs.pop("json"))
+                proxied_url += f"&body={requests.utils.quote(body, safe='')}"
+            logger.info(f"Proxying {method} {url}")
+            return super().request("GET", proxied_url, **kwargs)
+        return super().request(method, url, **kwargs)
+
+
 def get_transcript(youtube_video_id: str) -> str:
     """Fetch transcript for a YouTube video."""
-    ytt_api = YouTubeTranscriptApi()
+    if TRANSCRIPT_PROXY_URL:
+        logger.info(f"Using proxy for transcript: {TRANSCRIPT_PROXY_URL}")
+        session = ProxiedSession(TRANSCRIPT_PROXY_URL)
+        ytt_api = YouTubeTranscriptApi(http_client=session)
+    else:
+        ytt_api = YouTubeTranscriptApi()
     result = ytt_api.fetch(youtube_video_id)
     parts = []
     for snippet in result.snippets:
@@ -58,7 +94,7 @@ def call_claude(prompt: str) -> str:
     """Call Claude API to analyze transcript."""
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     message = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )

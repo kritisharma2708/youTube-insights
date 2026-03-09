@@ -1035,8 +1035,15 @@
         // --- API helper ---
         function api(path, method = 'GET') {
             return fetch(`/api${path}`, { method })
-                .then(r => {
-                    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+                .then(async r => {
+                    if (!r.ok) {
+                        let detail = r.statusText;
+                        try {
+                            const body = await r.json();
+                            detail = body.detail || detail;
+                        } catch {}
+                        throw new Error(detail);
+                    }
                     return r.json();
                 });
         }
@@ -1244,7 +1251,9 @@
                 })
                 .catch(err => {
                     btn.innerHTML = `${ICONS.zap} Retry`;
+                    btn.title = err.message;
                     btn.disabled = false;
+                    alert('Extraction failed: ' + err.message);
                 });
         }
 
@@ -1442,7 +1451,9 @@
                 })
                 .catch(err => {
                     btn.innerHTML = `${ICONS.zap} Retry`;
+                    btn.title = err.message;
                     btn.disabled = false;
+                    alert('Extraction failed: ' + err.message);
                 });
         }
 
