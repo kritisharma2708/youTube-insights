@@ -56,11 +56,22 @@ class ProxiedSession(requests.Session):
         self.proxy_url = proxy_url.rstrip("/")
 
     def request(self, method, url, **kwargs):
-        # Route GET requests through the proxy worker
-        if method.upper() == "GET" and self.proxy_url:
-            proxied_url = f"{self.proxy_url}?url={requests.utils.quote(url, safe='')}"
-            logger.debug(f"Proxying request: {url} -> {proxied_url}")
-            return super().request(method, proxied_url, **kwargs)
+        # Route all YouTube requests through the proxy worker
+        if self.proxy_url and "youtube.com" in url:
+            encoded_url = requests.utils.quote(url, safe="")
+            proxied_url = f"{self.proxy_url}?url={encoded_url}&method={method.upper()}"
+            # For POST requests, pass the body as a query param
+            if method.upper() == "POST" and "data" in kwargs:
+                body = kwargs.pop("data", "")
+                if isinstance(body, bytes):
+                    body = body.decode("utf-8")
+                proxied_url += f"&body={requests.utils.quote(str(body), safe='')}"
+            elif method.upper() == "POST" and "json" in kwargs:
+                import json as json_mod
+                body = json_mod.dumps(kwargs.pop("json"))
+                proxied_url += f"&body={requests.utils.quote(body, safe='')}"
+            logger.info(f"Proxying {method} {url}")
+            return super().request("GET", proxied_url, **kwargs)
         return super().request(method, url, **kwargs)
 
 
