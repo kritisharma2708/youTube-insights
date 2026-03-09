@@ -12,5 +12,7 @@ services:
         sync: false
       - key: APP_API_KEY
         sync: false
+      - key: TRANSCRIPT_PROXY_URL
+        value: https://yt-proxy.sharmakriti275.workers.dev
       - key: PYTHON_VERSION
         value: 3.11.7

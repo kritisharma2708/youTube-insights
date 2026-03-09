@@ -1,11 +1,15 @@
 import json
+import logging
 
 import anthropic
+import requests
 from youtube_transcript_api import YouTubeTranscriptApi
 from sqlalchemy.orm import Session
 
-from app.config import ANTHROPIC_API_KEY
+from app.config import ANTHROPIC_API_KEY, TRANSCRIPT_PROXY_URL
 from app.models.models import Video, Insight
+
+logger = logging.getLogger(__name__)
 
 EXTRACTION_PROMPT_TEMPLATE = (
     "You are an expert content analyst. Analyze the following video transcript "
@@ -44,9 +48,30 @@ EXTRACTION_PROMPT_TEMPLATE = (
 )
 
 
+class ProxiedSession(requests.Session):
+    """A requests.Session that routes all requests through a Cloudflare Worker proxy."""
+
+    def __init__(self, proxy_url: str):
+        super().__init__()
+        self.proxy_url = proxy_url.rstrip("/")
+
+    def request(self, method, url, **kwargs):
+        # Route GET requests through the proxy worker
+        if method.upper() == "GET" and self.proxy_url:
+            proxied_url = f"{self.proxy_url}?url={requests.utils.quote(url, safe='')}"
+            logger.debug(f"Proxying request: {url} -> {proxied_url}")
+            return super().request(method, proxied_url, **kwargs)
+        return super().request(method, url, **kwargs)
+
+
 def get_transcript(youtube_video_id: str) -> str:
     """Fetch transcript for a YouTube video."""
-    ytt_api = YouTubeTranscriptApi()
+    if TRANSCRIPT_PROXY_URL:
+        logger.info(f"Using proxy for transcript: {TRANSCRIPT_PROXY_URL}")
+        session = ProxiedSession(TRANSCRIPT_PROXY_URL)
+        ytt_api = YouTubeTranscriptApi(http_client=session)
+    else:
+        ytt_api = YouTubeTranscriptApi()
     result = ytt_api.fetch(youtube_video_id)
     parts = []
     for snippet in result.snippets:
