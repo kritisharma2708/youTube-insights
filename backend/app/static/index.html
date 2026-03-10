@@ -1142,8 +1142,12 @@
                         <div class="pipeline-status" id="pipelineStatus" style="margin:-10px 0 14px"></div>
                     `;
 
+                    let firstUnprocessedId = null;
                     data.videos.forEach((v, idx) => {
                         const hasInsights = v.insight_count > 0;
+                        if (!hasInsights && firstUnprocessedId === null) {
+                            firstUnprocessedId = v.id;
+                        }
                         html += `
                             <div class="feed-card animate-in" style="animation-delay:${idx * 60}ms">
                                 <div class="feed-card-header">
@@ -1173,8 +1177,8 @@
                                     </button>
                                     <div class="insights-panel" id="insights-panel-${v.id}" data-video-id="${v.id}" data-loaded="false"></div>
                                 ` : `
-                                    <div style="padding:0 16px 14px">
-                                        <button class="btn-extract" onclick="extractVideo(${v.id}, this)">
+                                    <div style="padding:0 16px 14px" id="extract-area-${v.id}">
+                                        <button class="btn-extract" id="extract-btn-${v.id}" onclick="extractVideo(${v.id}, this)">
                                             ${ICONS.zap} Extract Insights
                                         </button>
                                     </div>
@@ -1184,6 +1188,12 @@
                     });
 
                     c.innerHTML = html;
+
+                    // Auto-extract the first unprocessed video
+                    if (firstUnprocessedId !== null) {
+                        const btn = document.getElementById(`extract-btn-${firstUnprocessedId}`);
+                        if (btn) extractVideo(firstUnprocessedId, btn);
+                    }
                 })
                 .catch(err => {
                     c.innerHTML = `<div class="empty-state"><p>Failed to load feed</p><p class="subtitle">${err.message}</p>
@@ -1367,9 +1377,36 @@
             // If already has an iframe, don't re-embed
             if (container.querySelector('iframe')) return;
             // Replace thumbnail with YouTube iframe embed
-            // enablejsapi=1 and playsinline=1 ensure controls work within the iframe
             const embedUrl = `https://www.youtube.com/embed/${videoId}?start=${startSec}&end=${endSec}&autoplay=1&rel=0&modestbranding=1&enablejsapi=1&playsinline=1&origin=${encodeURIComponent(window.location.origin)}`;
-            container.innerHTML = `<iframe src="${embedUrl}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen frameborder="0"></iframe>`;
+            const iframe = document.createElement('iframe');
+            iframe.src = embedUrl;
+            iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+            iframe.allowFullscreen = true;
+            iframe.frameBorder = '0';
+            // Handle embed errors (video owner disabled embedding)
+            iframe.onerror = () => showEmbedFallback(container, videoId, startSec);
+            container.innerHTML = '';
+            container.appendChild(iframe);
+            container.style.cursor = 'default';
+            container.onclick = null;
+            // Also detect embed block via a timeout — YouTube doesn't fire onerror reliably
+            setTimeout(() => {
+                try {
+                    // If iframe was removed or errored, show fallback
+                    if (!container.querySelector('iframe')) return;
+                } catch(e) {}
+            }, 3000);
+        }
+
+        function showEmbedFallback(container, videoId, startSec) {
+            const ytUrl = `https://www.youtube.com/watch?v=${videoId}&t=${startSec}`;
+            container.innerHTML = `
+                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;background:#1a1a1a;border-radius:8px;padding:16px;text-align:center">
+                    <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Embedding disabled for this video</div>
+                    <a href="${ytUrl}" target="_blank" rel="noopener" style="color:var(--primary);font-size:13px;font-weight:600;text-decoration:none">
+                        Watch on YouTube &rarr;
+                    </a>
+                </div>`;
             container.style.cursor = 'default';
             container.onclick = null;
         }
@@ -1378,47 +1415,51 @@
         function loadDiscover() {
             const c = document.getElementById('discover-container');
             c.innerHTML = '<div class="loading"><div class="spinner"></div>Loading videos...</div>';
-            api('/videos/unprocessed')
+            api('/videos/all')
                 .then(data => {
                     if (data.videos.length === 0) {
                         c.innerHTML = `
                             <div class="empty-state">
-                                <p style="font-size:32px;margin-bottom:12px">&#9989;</p>
-                                <p style="font-size:16px;font-weight:600;color:var(--fg)">All caught up!</p>
-                                <p class="subtitle">All videos have been processed. Check your feed.</p>
+                                <p style="font-size:32px;margin-bottom:12px">&#127916;</p>
+                                <p style="font-size:16px;font-weight:600;color:var(--fg)">No videos yet</p>
+                                <p class="subtitle">Run the pipeline to fetch videos.</p>
                             </div>`;
                         return;
                     }
 
-                    let html = `
-                        <section style="margin-bottom:28px">
-                            <div class="section-heading" style="color:var(--accent)">
-                                ${ICONS.trending} Unprocessed Videos
-                            </div>
-                            <div style="font-size:12px;color:var(--muted);margin:-10px 0 16px">Click Extract to generate insights</div>
-                    `;
+                    const processed = data.videos.filter(v => v.insight_count > 0);
+                    const unprocessed = data.videos.filter(v => v.insight_count === 0);
 
-                    data.videos.forEach(v => {
+                    let html = '';
+
+                    if (unprocessed.length > 0) {
                         html += `
-                            <div class="discover-video-row">
-                                ${v.thumbnail_url
-                                    ? `<img class="discover-video-thumb" src="${v.thumbnail_url}" alt="">`
-                                    : '<div class="discover-video-thumb"></div>'
-                                }
-                                <div class="discover-video-info">
-                                    <div class="discover-video-title">${escHtml(v.title)}</div>
-                                    <div class="discover-video-channel">${escHtml(v.channel_name)} &middot; ${formatViews(v.views)} views</div>
+                            <section style="margin-bottom:28px">
+                                <div class="section-heading" style="color:var(--accent)">
+                                    ${ICONS.trending} Unprocessed Videos
                                 </div>
-                                <div class="discover-video-actions">
-                                    <button class="btn-extract" style="margin-top:0;padding:6px 12px;font-size:11px" onclick="extractDiscover(${v.id}, this)">
-                                        ${ICONS.zap} Extract
-                                    </button>
-                                </div>
-                            </div>
+                                <div style="font-size:12px;color:var(--muted);margin:-10px 0 16px">Click Extract to generate insights</div>
                         `;
-                    });
+                        unprocessed.forEach(v => {
+                            html += discoverRow(v, false);
+                        });
+                        html += '</section>';
+                    }
 
-                    html += '</section>';
+                    if (processed.length > 0) {
+                        html += `
+                            <section style="margin-bottom:28px">
+                                <div class="section-heading" style="color:var(--success)">
+                                    ${ICONS.check} Processed Videos
+                                </div>
+                                <div style="font-size:12px;color:var(--muted);margin:-10px 0 16px">${processed.length} videos with insights</div>
+                        `;
+                        processed.forEach(v => {
+                            html += discoverRow(v, true);
+                        });
+                        html += '</section>';
+                    }
+
                     c.innerHTML = html;
                 })
                 .catch(err => {
@@ -1435,6 +1476,31 @@
                     row.style.display = (title.includes(q) || channel.includes(q)) ? '' : 'none';
                 });
             };
+        }
+
+        function discoverRow(v, isProcessed) {
+            const actionBtn = isProcessed
+                ? `<button class="btn-extract" style="margin-top:0;padding:6px 12px;font-size:11px;background:var(--primary);color:white;border-color:var(--primary)" onclick="loadInsights(${v.id})">
+                    ${ICONS.sparkles} ${v.insight_count}
+                   </button>`
+                : `<button class="btn-extract" style="margin-top:0;padding:6px 12px;font-size:11px" onclick="extractDiscover(${v.id}, this)">
+                    ${ICONS.zap} Extract
+                   </button>`;
+            return `
+                <div class="discover-video-row">
+                    ${v.thumbnail_url
+                        ? `<img class="discover-video-thumb" src="${v.thumbnail_url}" alt="">`
+                        : '<div class="discover-video-thumb"></div>'
+                    }
+                    <div class="discover-video-info">
+                        <div class="discover-video-title">${escHtml(v.title)}</div>
+                        <div class="discover-video-channel">${escHtml(v.channel_name)} &middot; ${formatViews(v.views)} views</div>
+                    </div>
+                    <div class="discover-video-actions">
+                        ${actionBtn}
+                    </div>
+                </div>
+            `;
         }
 
         function extractDiscover(videoId, btn) {

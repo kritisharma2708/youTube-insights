@@ -68,3 +68,28 @@ def get_unprocessed(
         page=page,
         total_pages=total_pages,
     )
+
+
+@router.get("/videos/all", response_model=FeedResponse)
+def get_all_videos(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """All videos (processed and unprocessed), most recent first."""
+    total = db.query(Video).count()
+    total_pages = max(math.ceil(total / per_page), 1)
+
+    videos = (
+        db.query(Video)
+        .order_by(Video.published_at.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+
+    return FeedResponse(
+        videos=[_to_summary(v) for v in videos],
+        page=page,
+        total_pages=total_pages,
+    )
