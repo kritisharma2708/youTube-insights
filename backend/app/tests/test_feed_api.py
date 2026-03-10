@@ -118,6 +118,39 @@ def test_unprocessed_empty_when_all_processed(client, db_session):
     assert data["videos"] == []
 
 
+def test_all_videos_endpoint(client, db_session):
+    channel = Channel(name="Test", youtube_handle="@allv", youtube_channel_id="UCAV")
+    db_session.add(channel)
+    db_session.commit()
+
+    processed = Video(
+        channel_id=channel.id,
+        youtube_video_id="allv_proc",
+        title="Processed Video",
+        published_at=datetime.now(timezone.utc),
+        rank_score=3.0,
+        processed=True,
+    )
+    unprocessed = Video(
+        channel_id=channel.id,
+        youtube_video_id="allv_unproc",
+        title="Unprocessed Video",
+        published_at=datetime.now(timezone.utc),
+        rank_score=2.0,
+        processed=False,
+    )
+    db_session.add_all([processed, unprocessed])
+    db_session.commit()
+
+    response = client.get("/api/videos/all")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["videos"]) == 2
+    titles = {v["title"] for v in data["videos"]}
+    assert "Processed Video" in titles
+    assert "Unprocessed Video" in titles
+
+
 def test_get_video_with_insights(client, db_session):
     channel = Channel(name="Test", youtube_handle="@detail", youtube_channel_id="UCF3")
     db_session.add(channel)
