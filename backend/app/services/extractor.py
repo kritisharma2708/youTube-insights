@@ -60,12 +60,14 @@ class ProxiedSession(requests.Session):
         if self.proxy_url and "youtube.com" in url:
             encoded_url = requests.utils.quote(url, safe="")
             proxied_url = f"{self.proxy_url}?url={encoded_url}"
-            print(f"[PROXY] {method} {url} -> {proxied_url[:80]}...")
+            print(f"[PROXY] {method} {url}", flush=True)
             # Keep the same method (GET/POST) — worker handles both
             resp = super().request(method, proxied_url, **kwargs)
-            print(f"[PROXY] Response: {resp.status_code}, length={len(resp.text)}")
+            body_preview = resp.text[:500].replace("\n", " ")
+            print(f"[PROXY] Response: {resp.status_code}, length={len(resp.text)}", flush=True)
+            print(f"[PROXY] Body preview: {body_preview}", flush=True)
             return resp
-        print(f"[NO-PROXY] {method} {url}")
+        print(f"[NO-PROXY] {method} {url}", flush=True)
         return super().request(method, url, **kwargs)
 
 
