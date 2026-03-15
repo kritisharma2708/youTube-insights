@@ -68,11 +68,13 @@ class ProxiedSession(requests.Session):
 
 def get_transcript(youtube_video_id: str) -> str:
     """Fetch transcript for a YouTube video."""
+    logger.info(f"TRANSCRIPT_PROXY_URL = '{TRANSCRIPT_PROXY_URL}'")
     if TRANSCRIPT_PROXY_URL:
         logger.info(f"Using proxy for transcript: {TRANSCRIPT_PROXY_URL}")
         session = ProxiedSession(TRANSCRIPT_PROXY_URL)
         ytt_api = YouTubeTranscriptApi(http_client=session)
     else:
+        logger.warning("No proxy URL set — requesting YouTube directly")
         ytt_api = YouTubeTranscriptApi()
     result = ytt_api.fetch(youtube_video_id)
     parts = []
