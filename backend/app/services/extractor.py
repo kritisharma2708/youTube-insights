@@ -60,19 +60,24 @@ class ProxiedSession(requests.Session):
         if self.proxy_url and "youtube.com" in url:
             encoded_url = requests.utils.quote(url, safe="")
             proxied_url = f"{self.proxy_url}?url={encoded_url}"
-            logger.info(f"Proxying {method} {url}")
+            print(f"[PROXY] {method} {url} -> {proxied_url[:80]}...")
             # Keep the same method (GET/POST) — worker handles both
-            return super().request(method, proxied_url, **kwargs)
+            resp = super().request(method, proxied_url, **kwargs)
+            print(f"[PROXY] Response: {resp.status_code}, length={len(resp.text)}")
+            return resp
+        print(f"[NO-PROXY] {method} {url}")
         return super().request(method, url, **kwargs)
 
 
 def get_transcript(youtube_video_id: str) -> str:
     """Fetch transcript for a YouTube video."""
+    print(f"[TRANSCRIPT] PROXY_URL = '{TRANSCRIPT_PROXY_URL}'")
     if TRANSCRIPT_PROXY_URL:
-        logger.info(f"Using proxy for transcript: {TRANSCRIPT_PROXY_URL}")
+        print(f"[TRANSCRIPT] Using proxy: {TRANSCRIPT_PROXY_URL}")
         session = ProxiedSession(TRANSCRIPT_PROXY_URL)
         ytt_api = YouTubeTranscriptApi(http_client=session)
     else:
+        print("[TRANSCRIPT] WARNING: No proxy URL set — requesting YouTube directly")
         ytt_api = YouTubeTranscriptApi()
     result = ytt_api.fetch(youtube_video_id)
     parts = []
