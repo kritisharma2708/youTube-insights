@@ -2,7 +2,7 @@ import json
 import logging
 import re
 import subprocess
-import tempfile
+import xml.etree.ElementTree as ET
 
 import anthropic
 import requests
@@ -56,8 +56,6 @@ EXTRACTION_PROMPT_TEMPLATE = (
 # ---------------------------------------------------------------------------
 
 class ProxiedSession(requests.Session):
-    """A requests.Session that routes all requests through a Cloudflare Worker proxy."""
-
     def __init__(self, proxy_url: str):
         super().__init__()
         self.proxy_url = proxy_url.rstrip("/")
@@ -78,7 +76,6 @@ class ProxiedSession(requests.Session):
 # ---------------------------------------------------------------------------
 
 def _transcript_via_ytt_api(video_id: str) -> str:
-    """Fetch transcript using youtube-transcript-api library."""
     print("[METHOD 1] youtube-transcript-api", flush=True)
     if TRANSCRIPT_PROXY_URL:
         session = ProxiedSession(TRANSCRIPT_PROXY_URL)
@@ -93,16 +90,146 @@ def _transcript_via_ytt_api(video_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Method 2: yt-dlp subtitle extraction
+# Method 2: Invidious API (community-run YouTube frontends)
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Method 2: Direct HTML parsing — extract captions from the YouTube page
+#            we already fetch successfully via proxy
+# ---------------------------------------------------------------------------
+
+def _transcript_via_html_parsing(video_id: str) -> str:
+    """Parse captions directly from YouTube watch page HTML."""
+    print("[METHOD 2] Direct HTML parsing", flush=True)
+
+    # Fetch the watch page through proxy
+    watch_url = f"https://www.youtube.com/watch?v={video_id}"
+    if TRANSCRIPT_PROXY_URL:
+        encoded = requests.utils.quote(watch_url, safe="")
+        fetch_url = f"{TRANSCRIPT_PROXY_URL}?url={encoded}"
+    else:
+        fetch_url = watch_url
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    resp = requests.get(fetch_url, headers=headers, timeout=30)
+    resp.raise_for_status()
+    html = resp.text
+    print(f"[METHOD 2] Page fetched, length={len(html)}", flush=True)
+
+    # Try to find ytInitialPlayerResponse in the HTML
+    caption_url = None
+
+    # Pattern 1: ytInitialPlayerResponse = {...}
+    match = re.search(r'ytInitialPlayerResponse\s*=\s*(\{.+?\});', html)
+    if match:
+        try:
+            player_data = json.loads(match.group(1))
+            print(f"[METHOD 2] Found ytInitialPlayerResponse, keys: {list(player_data.keys())}", flush=True)
+            caption_url = _extract_caption_url(player_data)
+        except json.JSONDecodeError as e:
+            print(f"[METHOD 2] Failed to parse ytInitialPlayerResponse: {e}", flush=True)
+
+    # Pattern 2: Look for caption URLs directly in HTML
+    if not caption_url:
+        # Caption URLs contain "timedtext" and "lang=en"
+        matches = re.findall(r'(https?://[^"]*timedtext[^"]*)', html)
+        for url in matches:
+            url = url.replace('\\u0026', '&')
+            if 'lang=en' in url or 'lang%3Den' in url:
+                caption_url = url
+                print(f"[METHOD 2] Found caption URL in HTML directly", flush=True)
+                break
+        # Fallback: take first timedtext URL
+        if not caption_url and matches:
+            caption_url = matches[0].replace('\\u0026', '&')
+            print(f"[METHOD 2] Using first timedtext URL found", flush=True)
+
+    if not caption_url:
+        # Log what we found for debugging
+        has_captions = '"captions"' in html
+        has_timedtext = 'timedtext' in html
+        print(f"[METHOD 2] No caption URL found. captions_in_html={has_captions}, timedtext_in_html={has_timedtext}", flush=True)
+        raise RuntimeError(f"No caption URL found in page HTML (captions={has_captions}, timedtext={has_timedtext})")
+
+    # Fetch the caption file (timedtext URLs are usually on a different domain)
+    caption_url_clean = caption_url.replace('\\u0026', '&')
+    # Add json3 format if not already specified
+    if 'fmt=' not in caption_url_clean:
+        caption_url_clean += '&fmt=json3'
+
+    print(f"[METHOD 2] Fetching captions from: {caption_url_clean[:100]}...", flush=True)
+    cap_resp = requests.get(caption_url_clean, timeout=30)
+    cap_resp.raise_for_status()
+
+    transcript = _parse_caption_xml(cap_resp.text)
+    if not transcript:
+        raise RuntimeError("Caption file was empty")
+
+    return transcript
+
+
+def _extract_caption_url(player_data: dict):
+    """Extract English caption URL from ytInitialPlayerResponse."""
+    captions = player_data.get("captions", {})
+    renderer = captions.get("playerCaptionsTracklistRenderer", {})
+    tracks = renderer.get("captionTracks", [])
+
+    if not tracks:
+        return None
+
+    # Find English track
+    for track in tracks:
+        lang = track.get("languageCode", "")
+        if lang.startswith("en"):
+            return track.get("baseUrl")
+
+    # Fallback to first track
+    if tracks:
+        return tracks[0].get("baseUrl")
+
+    return None
+
+
+def _parse_caption_xml(xml_text: str) -> str:
+    """Parse YouTube caption XML into timestamped transcript."""
+    parts = []
+    try:
+        root = ET.fromstring(xml_text)
+        for elem in root.findall('.//text'):
+            start = float(elem.get('start', 0))
+            text = elem.text or ''
+            text = text.replace('&amp;', '&').replace('&#39;', "'").replace('&quot;', '"')
+            text = text.strip()
+            if text:
+                parts.append(f"[{start:.1f}s] {text}")
+    except ET.ParseError:
+        # Try json3 format
+        try:
+            data = json.loads(xml_text)
+            for event in data.get("events", []):
+                start_ms = event.get("tStartMs", 0)
+                start_sec = start_ms / 1000.0
+                segs = event.get("segs", [])
+                text = "".join(s.get("utf8", "") for s in segs).strip()
+                if text and text != "\n":
+                    parts.append(f"[{start_sec:.1f}s] {text}")
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Method 3: yt-dlp with web client (no proxy, uses its own anti-detection)
 # ---------------------------------------------------------------------------
 
 def _transcript_via_ytdlp(video_id: str) -> str:
-    """Fetch transcript using yt-dlp subtitle extraction."""
-    print("[METHOD 2] yt-dlp subtitles", flush=True)
+    print("[METHOD 3] yt-dlp subtitles", flush=True)
     url = f"https://www.youtube.com/watch?v={video_id}"
 
-    # yt-dlp has its own anti-detection (client rotation, etc.)
-    # Don't use our Cloudflare Worker as proxy — it's not a standard HTTP proxy
     cmd = [
         "yt-dlp",
         "--skip-download",
@@ -111,7 +238,7 @@ def _transcript_via_ytdlp(video_id: str) -> str:
         "--sub-langs", "en",
         "--sub-format", "json3",
         "--dump-json",
-        "--extractor-args", "youtube:player_client=android,web",
+        "--extractor-args", "youtube:player_client=web",
         url,
     ]
 
@@ -121,7 +248,6 @@ def _transcript_via_ytdlp(video_id: str) -> str:
 
     info = json.loads(result.stdout)
 
-    # Try manual subtitles first, then auto-generated
     subs = info.get("subtitles", {})
     auto_subs = info.get("automatic_captions", {})
 
@@ -129,7 +255,6 @@ def _transcript_via_ytdlp(video_id: str) -> str:
     for lang_key in ["en", "en-US", "en-GB"]:
         for source in [subs, auto_subs]:
             if lang_key in source:
-                # Find json3 format, fallback to first available
                 formats = source[lang_key]
                 for fmt in formats:
                     if fmt.get("ext") == "json3":
@@ -145,11 +270,10 @@ def _transcript_via_ytdlp(video_id: str) -> str:
     if not sub_url:
         raise RuntimeError("No English subtitles found via yt-dlp")
 
-    print(f"[METHOD 2] Fetching subtitle from: {sub_url[:80]}...", flush=True)
+    print(f"[METHOD 3] Fetching subtitle from: {sub_url[:80]}...", flush=True)
     resp = requests.get(sub_url, timeout=30)
     resp.raise_for_status()
 
-    # Parse json3 format
     sub_data = resp.json()
     parts = []
     for event in sub_data.get("events", []):
@@ -167,136 +291,6 @@ def _transcript_via_ytdlp(video_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Method 3: Custom Android innertube client
-# ---------------------------------------------------------------------------
-
-def _transcript_via_android_innertube(video_id: str) -> str:
-    """Fetch transcript using Android innertube client context."""
-    print("[METHOD 3] Android innertube client", flush=True)
-
-    # Android innertube API key
-    innertube_url = "https://www.youtube.com/youtubei/v1/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w&prettyPrint=false"
-    payload = {
-        "context": {
-            "client": {
-                "clientName": "ANDROID",
-                "clientVersion": "19.09.37",
-                "androidSdkVersion": 30,
-                "hl": "en",
-                "gl": "US",
-            }
-        },
-        "videoId": video_id,
-    }
-    headers = {
-        "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
-        "Content-Type": "application/json",
-    }
-
-    # Try direct first (Android client may work from cloud IPs)
-    # then fall back to proxy
-    urls_to_try = [innertube_url]
-    if TRANSCRIPT_PROXY_URL:
-        encoded = requests.utils.quote(innertube_url, safe="")
-        urls_to_try.append(f"{TRANSCRIPT_PROXY_URL}?url={encoded}")
-
-    player_data = None
-    for url in urls_to_try:
-        try:
-            print(f"[METHOD 3] Trying: {url[:80]}...", flush=True)
-            resp = requests.post(url, json=payload, headers=headers, timeout=30)
-            resp.raise_for_status()
-            player_data = resp.json()
-            print(f"[METHOD 3] Player response keys: {list(player_data.keys())}", flush=True)
-            # Check if we actually got captions
-            if "captions" in player_data:
-                break
-            print(f"[METHOD 3] No captions in response, trying next...", flush=True)
-            player_data = None
-        except Exception as e:
-            print(f"[METHOD 3] Failed: {e}", flush=True)
-
-    if not player_data or "captions" not in player_data:
-        # Try one more client: TVHTML5_SIMPLY_EMBEDDED_PLAYER
-        print("[METHOD 3] Trying TV embedded client...", flush=True)
-        tv_url = "https://www.youtube.com/youtubei/v1/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w&prettyPrint=false"
-        tv_payload = {
-            "context": {
-                "client": {
-                    "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-                    "clientVersion": "2.0",
-                    "hl": "en",
-                    "gl": "US",
-                },
-                "thirdParty": {
-                    "embedUrl": "https://www.google.com",
-                }
-            },
-            "videoId": video_id,
-        }
-        tv_headers = {
-            "User-Agent": "Mozilla/5.0",
-            "Content-Type": "application/json",
-        }
-        resp = requests.post(tv_url, json=tv_payload, headers=tv_headers, timeout=30)
-        resp.raise_for_status()
-        player_data = resp.json()
-        print(f"[METHOD 3] TV client response keys: {list(player_data.keys())}", flush=True)
-
-    if not player_data:
-        raise RuntimeError("All innertube clients failed")
-
-    # Step 2: Extract caption track URL from player response
-    captions = player_data.get("captions", {})
-    renderer = captions.get("playerCaptionsTracklistRenderer", {})
-    tracks = renderer.get("captionTracks", [])
-
-    if not tracks:
-        raise RuntimeError(
-            f"No caption tracks in Android innertube response. "
-            f"Keys: {list(player_data.keys())}"
-        )
-
-    # Find English track
-    caption_url = None
-    for track in tracks:
-        lang = track.get("languageCode", "")
-        if lang.startswith("en"):
-            caption_url = track.get("baseUrl")
-            break
-
-    # Fallback to first track if no English found
-    if not caption_url and tracks:
-        caption_url = tracks[0].get("baseUrl")
-
-    if not caption_url:
-        raise RuntimeError("No caption URL found in tracks")
-
-    # Request JSON3 format for easier parsing
-    caption_url += "&fmt=json3"
-    print(f"[METHOD 3] Fetching captions from: {caption_url[:80]}...", flush=True)
-
-    # Fetch captions (these URLs are on timedtext.video.google.com, usually not blocked)
-    caption_resp = requests.get(caption_url, timeout=30)
-    caption_resp.raise_for_status()
-    sub_data = caption_resp.json()
-
-    parts = []
-    for event in sub_data.get("events", []):
-        start_ms = event.get("tStartMs", 0)
-        start_sec = start_ms / 1000.0
-        segs = event.get("segs", [])
-        text = "".join(s.get("utf8", "") for s in segs).strip()
-        if text and text != "\n":
-            parts.append(f"[{start_sec:.1f}s] {text}")
-
-    if not parts:
-        raise RuntimeError("Android innertube captions were empty")
-
-    return "\n".join(parts)
-
-
-# ---------------------------------------------------------------------------
 # Main transcript fetcher with fallback chain
 # ---------------------------------------------------------------------------
 
@@ -304,8 +298,8 @@ def get_transcript(youtube_video_id: str) -> str:
     """Fetch transcript using a fallback chain of methods."""
     methods = [
         ("youtube-transcript-api", _transcript_via_ytt_api),
+        ("html-parsing", _transcript_via_html_parsing),
         ("yt-dlp", _transcript_via_ytdlp),
-        ("android-innertube", _transcript_via_android_innertube),
     ]
 
     errors = []
@@ -328,7 +322,6 @@ def get_transcript(youtube_video_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 def call_claude(prompt: str) -> str:
-    """Call Claude API to analyze transcript."""
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     message = client.messages.create(
         model="claude-haiku-4-5-20251001",
@@ -339,7 +332,6 @@ def call_claude(prompt: str) -> str:
 
 
 def parse_claude_response(response_text: str) -> list[dict]:
-    """Parse Claude's JSON response into a list of insights."""
     text = response_text.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1]
@@ -360,7 +352,6 @@ def parse_claude_response(response_text: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def extract_insights(db: Session, video_id: int) -> list[Insight]:
-    """Extract insights from a video's transcript using Claude."""
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         return []
