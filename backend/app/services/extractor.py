@@ -1,5 +1,8 @@
 import json
 import logging
+import re
+import subprocess
+import tempfile
 
 import anthropic
 import requests
@@ -48,6 +51,10 @@ EXTRACTION_PROMPT_TEMPLATE = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Proxy session for routing requests through Cloudflare Worker
+# ---------------------------------------------------------------------------
+
 class ProxiedSession(requests.Session):
     """A requests.Session that routes all requests through a Cloudflare Worker proxy."""
 
@@ -56,37 +63,231 @@ class ProxiedSession(requests.Session):
         self.proxy_url = proxy_url.rstrip("/")
 
     def request(self, method, url, **kwargs):
-        # Route all YouTube requests through the proxy worker
         if self.proxy_url and "youtube.com" in url:
             encoded_url = requests.utils.quote(url, safe="")
             proxied_url = f"{self.proxy_url}?url={encoded_url}"
             print(f"[PROXY] {method} {url}", flush=True)
-            # Keep the same method (GET/POST) — worker handles both
             resp = super().request(method, proxied_url, **kwargs)
-            body_preview = resp.text[:500].replace("\n", " ")
             print(f"[PROXY] Response: {resp.status_code}, length={len(resp.text)}", flush=True)
-            print(f"[PROXY] Body preview: {body_preview}", flush=True)
             return resp
-        print(f"[NO-PROXY] {method} {url}", flush=True)
         return super().request(method, url, **kwargs)
 
 
-def get_transcript(youtube_video_id: str) -> str:
-    """Fetch transcript for a YouTube video."""
-    print(f"[TRANSCRIPT] PROXY_URL = '{TRANSCRIPT_PROXY_URL}'")
+# ---------------------------------------------------------------------------
+# Method 1: youtube-transcript-api (with proxy)
+# ---------------------------------------------------------------------------
+
+def _transcript_via_ytt_api(video_id: str) -> str:
+    """Fetch transcript using youtube-transcript-api library."""
+    print("[METHOD 1] youtube-transcript-api", flush=True)
     if TRANSCRIPT_PROXY_URL:
-        print(f"[TRANSCRIPT] Using proxy: {TRANSCRIPT_PROXY_URL}")
         session = ProxiedSession(TRANSCRIPT_PROXY_URL)
         ytt_api = YouTubeTranscriptApi(http_client=session)
     else:
-        print("[TRANSCRIPT] WARNING: No proxy URL set — requesting YouTube directly")
         ytt_api = YouTubeTranscriptApi()
-    result = ytt_api.fetch(youtube_video_id)
+    result = ytt_api.fetch(video_id)
     parts = []
     for snippet in result.snippets:
         parts.append(f"[{snippet.start:.1f}s] {snippet.text}")
     return "\n".join(parts)
 
+
+# ---------------------------------------------------------------------------
+# Method 2: yt-dlp subtitle extraction
+# ---------------------------------------------------------------------------
+
+def _transcript_via_ytdlp(video_id: str) -> str:
+    """Fetch transcript using yt-dlp subtitle extraction."""
+    print("[METHOD 2] yt-dlp subtitles", flush=True)
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    # Use yt-dlp to dump subtitle info as JSON
+    cmd = [
+        "yt-dlp",
+        "--skip-download",
+        "--write-subs",
+        "--write-auto-subs",
+        "--sub-langs", "en",
+        "--sub-format", "json3",
+        "--dump-json",
+        url,
+    ]
+
+    # If we have a proxy URL, use it
+    if TRANSCRIPT_PROXY_URL:
+        cmd.insert(1, f"--proxy={TRANSCRIPT_PROXY_URL}")
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        raise RuntimeError(f"yt-dlp failed: {result.stderr[:300]}")
+
+    info = json.loads(result.stdout)
+
+    # Try manual subtitles first, then auto-generated
+    subs = info.get("subtitles", {})
+    auto_subs = info.get("automatic_captions", {})
+
+    sub_url = None
+    for lang_key in ["en", "en-US", "en-GB"]:
+        for source in [subs, auto_subs]:
+            if lang_key in source:
+                # Find json3 format, fallback to first available
+                formats = source[lang_key]
+                for fmt in formats:
+                    if fmt.get("ext") == "json3":
+                        sub_url = fmt["url"]
+                        break
+                if not sub_url and formats:
+                    sub_url = formats[0]["url"]
+                if sub_url:
+                    break
+        if sub_url:
+            break
+
+    if not sub_url:
+        raise RuntimeError("No English subtitles found via yt-dlp")
+
+    print(f"[METHOD 2] Fetching subtitle from: {sub_url[:80]}...", flush=True)
+    resp = requests.get(sub_url, timeout=30)
+    resp.raise_for_status()
+
+    # Parse json3 format
+    sub_data = resp.json()
+    parts = []
+    for event in sub_data.get("events", []):
+        start_ms = event.get("tStartMs", 0)
+        start_sec = start_ms / 1000.0
+        segs = event.get("segs", [])
+        text = "".join(s.get("utf8", "") for s in segs).strip()
+        if text and text != "\n":
+            parts.append(f"[{start_sec:.1f}s] {text}")
+
+    if not parts:
+        raise RuntimeError("yt-dlp subtitles were empty")
+
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Method 3: Custom Android innertube client
+# ---------------------------------------------------------------------------
+
+def _transcript_via_android_innertube(video_id: str) -> str:
+    """Fetch transcript using Android innertube client context."""
+    print("[METHOD 3] Android innertube client", flush=True)
+
+    # Step 1: POST to innertube with Android client context
+    innertube_url = "https://www.youtube.com/youtubei/v1/player"
+    payload = {
+        "context": {
+            "client": {
+                "clientName": "ANDROID",
+                "clientVersion": "19.09.37",
+                "androidSdkVersion": 30,
+                "hl": "en",
+                "gl": "US",
+            }
+        },
+        "videoId": video_id,
+    }
+    headers = {
+        "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+        "Content-Type": "application/json",
+    }
+
+    # Route through proxy if available
+    if TRANSCRIPT_PROXY_URL:
+        encoded_url = requests.utils.quote(innertube_url, safe="")
+        request_url = f"{TRANSCRIPT_PROXY_URL}?url={encoded_url}"
+    else:
+        request_url = innertube_url
+
+    resp = requests.post(request_url, json=payload, headers=headers, timeout=30)
+    resp.raise_for_status()
+    player_data = resp.json()
+
+    print(f"[METHOD 3] Player response keys: {list(player_data.keys())}", flush=True)
+
+    # Step 2: Extract caption track URL from player response
+    captions = player_data.get("captions", {})
+    renderer = captions.get("playerCaptionsTracklistRenderer", {})
+    tracks = renderer.get("captionTracks", [])
+
+    if not tracks:
+        raise RuntimeError(
+            f"No caption tracks in Android innertube response. "
+            f"Keys: {list(player_data.keys())}"
+        )
+
+    # Find English track
+    caption_url = None
+    for track in tracks:
+        lang = track.get("languageCode", "")
+        if lang.startswith("en"):
+            caption_url = track.get("baseUrl")
+            break
+
+    # Fallback to first track if no English found
+    if not caption_url and tracks:
+        caption_url = tracks[0].get("baseUrl")
+
+    if not caption_url:
+        raise RuntimeError("No caption URL found in tracks")
+
+    # Request JSON3 format for easier parsing
+    caption_url += "&fmt=json3"
+    print(f"[METHOD 3] Fetching captions from: {caption_url[:80]}...", flush=True)
+
+    # Fetch captions (these URLs are on timedtext.video.google.com, usually not blocked)
+    caption_resp = requests.get(caption_url, timeout=30)
+    caption_resp.raise_for_status()
+    sub_data = caption_resp.json()
+
+    parts = []
+    for event in sub_data.get("events", []):
+        start_ms = event.get("tStartMs", 0)
+        start_sec = start_ms / 1000.0
+        segs = event.get("segs", [])
+        text = "".join(s.get("utf8", "") for s in segs).strip()
+        if text and text != "\n":
+            parts.append(f"[{start_sec:.1f}s] {text}")
+
+    if not parts:
+        raise RuntimeError("Android innertube captions were empty")
+
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Main transcript fetcher with fallback chain
+# ---------------------------------------------------------------------------
+
+def get_transcript(youtube_video_id: str) -> str:
+    """Fetch transcript using a fallback chain of methods."""
+    methods = [
+        ("youtube-transcript-api", _transcript_via_ytt_api),
+        ("yt-dlp", _transcript_via_ytdlp),
+        ("android-innertube", _transcript_via_android_innertube),
+    ]
+
+    errors = []
+    for name, method in methods:
+        try:
+            transcript = method(youtube_video_id)
+            print(f"[TRANSCRIPT] Success with {name}!", flush=True)
+            return transcript
+        except Exception as e:
+            print(f"[TRANSCRIPT] {name} failed: {e}", flush=True)
+            errors.append(f"{name}: {e}")
+
+    raise RuntimeError(
+        "All transcript methods failed:\n" + "\n".join(errors)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Claude analysis
+# ---------------------------------------------------------------------------
 
 def call_claude(prompt: str) -> str:
     """Call Claude API to analyze transcript."""
@@ -101,10 +302,9 @@ def call_claude(prompt: str) -> str:
 
 def parse_claude_response(response_text: str) -> list[dict]:
     """Parse Claude's JSON response into a list of insights."""
-    # Strip markdown code fences if present
     text = response_text.strip()
     if text.startswith("```"):
-        text = text.split("\n", 1)[1]  # remove ```json line
+        text = text.split("\n", 1)[1]
     if text.endswith("```"):
         text = text.rsplit("```", 1)[0]
     text = text.strip()
@@ -116,6 +316,10 @@ def parse_claude_response(response_text: str) -> list[dict]:
 
     return data.get("insights", [])
 
+
+# ---------------------------------------------------------------------------
+# Main extraction pipeline
+# ---------------------------------------------------------------------------
 
 def extract_insights(db: Session, video_id: int) -> list[Insight]:
     """Extract insights from a video's transcript using Claude."""
