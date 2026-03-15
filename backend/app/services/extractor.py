@@ -101,7 +101,8 @@ def _transcript_via_ytdlp(video_id: str) -> str:
     print("[METHOD 2] yt-dlp subtitles", flush=True)
     url = f"https://www.youtube.com/watch?v={video_id}"
 
-    # Use yt-dlp to dump subtitle info as JSON
+    # yt-dlp has its own anti-detection (client rotation, etc.)
+    # Don't use our Cloudflare Worker as proxy — it's not a standard HTTP proxy
     cmd = [
         "yt-dlp",
         "--skip-download",
@@ -110,14 +111,11 @@ def _transcript_via_ytdlp(video_id: str) -> str:
         "--sub-langs", "en",
         "--sub-format", "json3",
         "--dump-json",
+        "--extractor-args", "youtube:player_client=android,web",
         url,
     ]
 
-    # If we have a proxy URL, use it
-    if TRANSCRIPT_PROXY_URL:
-        cmd.insert(1, f"--proxy={TRANSCRIPT_PROXY_URL}")
-
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         raise RuntimeError(f"yt-dlp failed: {result.stderr[:300]}")
 
@@ -176,8 +174,8 @@ def _transcript_via_android_innertube(video_id: str) -> str:
     """Fetch transcript using Android innertube client context."""
     print("[METHOD 3] Android innertube client", flush=True)
 
-    # Step 1: POST to innertube with Android client context
-    innertube_url = "https://www.youtube.com/youtubei/v1/player"
+    # Android innertube API key
+    innertube_url = "https://www.youtube.com/youtubei/v1/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w&prettyPrint=false"
     payload = {
         "context": {
             "client": {
@@ -195,18 +193,58 @@ def _transcript_via_android_innertube(video_id: str) -> str:
         "Content-Type": "application/json",
     }
 
-    # Route through proxy if available
+    # Try direct first (Android client may work from cloud IPs)
+    # then fall back to proxy
+    urls_to_try = [innertube_url]
     if TRANSCRIPT_PROXY_URL:
-        encoded_url = requests.utils.quote(innertube_url, safe="")
-        request_url = f"{TRANSCRIPT_PROXY_URL}?url={encoded_url}"
-    else:
-        request_url = innertube_url
+        encoded = requests.utils.quote(innertube_url, safe="")
+        urls_to_try.append(f"{TRANSCRIPT_PROXY_URL}?url={encoded}")
 
-    resp = requests.post(request_url, json=payload, headers=headers, timeout=30)
-    resp.raise_for_status()
-    player_data = resp.json()
+    player_data = None
+    for url in urls_to_try:
+        try:
+            print(f"[METHOD 3] Trying: {url[:80]}...", flush=True)
+            resp = requests.post(url, json=payload, headers=headers, timeout=30)
+            resp.raise_for_status()
+            player_data = resp.json()
+            print(f"[METHOD 3] Player response keys: {list(player_data.keys())}", flush=True)
+            # Check if we actually got captions
+            if "captions" in player_data:
+                break
+            print(f"[METHOD 3] No captions in response, trying next...", flush=True)
+            player_data = None
+        except Exception as e:
+            print(f"[METHOD 3] Failed: {e}", flush=True)
 
-    print(f"[METHOD 3] Player response keys: {list(player_data.keys())}", flush=True)
+    if not player_data or "captions" not in player_data:
+        # Try one more client: TVHTML5_SIMPLY_EMBEDDED_PLAYER
+        print("[METHOD 3] Trying TV embedded client...", flush=True)
+        tv_url = "https://www.youtube.com/youtubei/v1/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w&prettyPrint=false"
+        tv_payload = {
+            "context": {
+                "client": {
+                    "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+                    "clientVersion": "2.0",
+                    "hl": "en",
+                    "gl": "US",
+                },
+                "thirdParty": {
+                    "embedUrl": "https://www.google.com",
+                }
+            },
+            "videoId": video_id,
+        }
+        tv_headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Content-Type": "application/json",
+        }
+        resp = requests.post(tv_url, json=tv_payload, headers=tv_headers, timeout=30)
+        resp.raise_for_status()
+        player_data = resp.json()
+        print(f"[METHOD 3] TV client response keys: {list(player_data.keys())}", flush=True)
+
+    if not player_data:
+        raise RuntimeError("All innertube clients failed")
 
     # Step 2: Extract caption track URL from player response
     captions = player_data.get("captions", {})
