@@ -108,7 +108,8 @@ def _transcript_via_podcast(video: Video) -> str:
     # Step 3: Transcribe with AssemblyAI
     print(f"[METHOD 1] Sending to AssemblyAI for transcription...", flush=True)
     aai.settings.api_key = ASSEMBLYAI_API_KEY
-    transcriber = aai.Transcriber()
+    config = aai.TranscriptionConfig(speech_model=aai.SpeechModel.best)
+    transcriber = aai.Transcriber(config=config)
     transcript_result = transcriber.transcribe(audio_url)
 
     if transcript_result.status == aai.TranscriptStatus.error:
