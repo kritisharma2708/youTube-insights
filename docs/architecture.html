@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InsightClips — System Architecture</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a0a;
+            color: #e0e0e0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+        h1 {
+            text-align: center;
+            font-size: 28px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            color: #fff;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 48px;
+        }
+        .canvas {
+            max-width: 1100px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        /* Boxes */
+        .box {
+            border: 1.5px solid #333;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+            position: relative;
+            background: #141414;
+        }
+        .box-label {
+            position: absolute;
+            top: -10px;
+            left: 16px;
+            background: #141414;
+            padding: 0 8px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+        }
+        .box-label.purple { color: #a78bfa; }
+        .box-label.blue { color: #60a5fa; }
+        .box-label.green { color: #4ade80; }
+        .box-label.amber { color: #fbbf24; }
+        .box-label.red { color: #f87171; }
+        .box-label.cyan { color: #22d3ee; }
+
+        /* Flow rows */
+        .flow-row {
+            display: flex;
+            gap: 16px;
+            align-items: stretch;
+            margin-bottom: 24px;
+        }
+        .flow-row > * { flex: 1; }
+
+        /* Cards inside boxes */
+        .card {
+            background: #1e1e1e;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-bottom: 10px;
+        }
+        .card:last-child { margin-bottom: 0; }
+        .card-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card-desc {
+            font-size: 12px;
+            color: #999;
+            line-height: 1.5;
+        }
+        .card-code {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 11px;
+            color: #a78bfa;
+            background: #1a1a2e;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        /* Arrow connectors */
+        .arrow-down {
+            display: flex;
+            justify-content: center;
+            margin: -8px 0;
+            padding: 8px 0;
+        }
+        .arrow-down svg { filter: drop-shadow(0 0 4px rgba(167, 139, 250, 0.3)); }
+
+        /* Step badges */
+        .step {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 20px;
+            margin-bottom: 8px;
+        }
+        .step-1 { background: #1e293b; color: #60a5fa; }
+        .step-2 { background: #1a2e1a; color: #4ade80; }
+        .step-3 { background: #2e1a2e; color: #c084fc; }
+
+        /* Status indicators */
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+        .status-ok { background: #052e16; color: #4ade80; }
+        .status-error { background: #2e0505; color: #f87171; }
+        .status-warn { background: #2e2505; color: #fbbf24; }
+
+        /* Tabs for pages */
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        .tab {
+            padding: 6px 14px;
+            background: #252525;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #ccc;
+        }
+        .tab.active {
+            background: #7c3aed;
+            color: #fff;
+        }
+
+        /* Pipeline steps */
+        .pipeline {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .pipeline-step {
+            flex: 1;
+            text-align: center;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #2a2a2a;
+            background: #1a1a1a;
+        }
+        .pipeline-step-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 4px;
+        }
+        .pipeline-step-desc {
+            font-size: 11px;
+            color: #888;
+        }
+        .pipeline-arrow {
+            color: #555;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        /* Extraction detail */
+        .extraction-flow {
+            display: flex;
+            gap: 16px;
+            margin-top: 12px;
+        }
+        .extraction-step {
+            flex: 1;
+            padding: 14px;
+            border-radius: 8px;
+            border: 1px solid #2a2a2a;
+            background: #1a1a1a;
+            position: relative;
+        }
+        .extraction-step.blocked {
+            border-color: #991b1b;
+            background: #1a0a0a;
+        }
+        .extraction-step.ok {
+            border-color: #166534;
+            background: #0a1a0a;
+        }
+        .ext-title {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .ext-desc {
+            font-size: 11px;
+            color: #888;
+            line-height: 1.5;
+        }
+        .ext-arrow {
+            position: absolute;
+            right: -20px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #555;
+            font-size: 18px;
+        }
+
+        /* API routes table */
+        .routes-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .routes-table th {
+            text-align: left;
+            padding: 8px 10px;
+            color: #888;
+            font-weight: 600;
+            border-bottom: 1px solid #2a2a2a;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .routes-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #1e1e1e;
+        }
+        .routes-table .method {
+            font-weight: 700;
+            font-family: monospace;
+            font-size: 11px;
+        }
+        .routes-table .method-get { color: #4ade80; }
+        .routes-table .method-post { color: #fbbf24; }
+        .routes-table .route { font-family: monospace; color: #a78bfa; font-size: 11px; }
+
+        /* Legend */
+        .legend {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-top: 32px;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #888;
+        }
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        /* External services row */
+        .ext-services {
+            display: flex;
+            gap: 16px;
+        }
+        .ext-service {
+            flex: 1;
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .ext-service-name {
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .ext-service-desc {
+            font-size: 11px;
+            color: #888;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #fff;
+            margin: 32px 0 16px;
+            padding-left: 12px;
+            border-left: 3px solid #7c3aed;
+        }
+
+        .blocked-banner {
+            background: linear-gradient(135deg, #2e0505, #1a0505);
+            border: 1px solid #991b1b;
+            border-radius: 8px;
+            padding: 14px 18px;
+            margin: 16px 0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .blocked-banner-icon {
+            font-size: 24px;
+            flex-shrink: 0;
+        }
+        .blocked-banner-text {
+            font-size: 13px;
+            color: #fca5a5;
+            line-height: 1.5;
+        }
+        .blocked-banner-text strong { color: #f87171; }
+    </style>
+</head>
+<body>
+
+<div class="canvas">
+    <h1>InsightClips — System Architecture</h1>
+    <p class="subtitle">AI-powered YouTube insight extraction pipeline</p>
+
+    <!-- ==================== USER BROWSER ==================== -->
+    <div class="box" style="border-color: #7c3aed44;">
+        <div class="box-label purple">User's Browser (PWA)</div>
+        <div class="tabs">
+            <div class="tab active">Home</div>
+            <div class="tab">Discover</div>
+            <div class="tab">Channels</div>
+        </div>
+        <div class="flow-row">
+            <div class="card">
+                <div class="card-title">Home Tab</div>
+                <div class="card-desc">
+                    Top 5 ranked videos. Auto-extracts first unprocessed video on load.
+                    <br><span class="card-code">GET /api/feed</span>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title">Discover Tab</div>
+                <div class="card-desc">
+                    All videos (processed + unprocessed) sorted by date.
+                    <br><span class="card-code">GET /api/videos/all</span>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title">Channels Tab</div>
+                <div class="card-desc">
+                    Lenny's Podcast, Think School, Dwarkesh Patel.
+                    Sync All triggers pipeline.
+                </div>
+            </div>
+        </div>
+        <div class="card" style="border-color: #7c3aed44;">
+            <div class="card-title" style="color: #a78bfa;">User Actions</div>
+            <div class="card-desc">
+                <strong style="color:#fbbf24">Refresh</strong> → Reloads feed instantly (no API calls to YouTube/Claude)
+                <br><strong style="color:#fbbf24">Fetch New</strong> → Runs pipeline: fetch videos from YouTube Data API + rank them
+                <br><strong style="color:#fbbf24">Extract</strong> → Fetches transcript + sends to Claude for insight extraction
+            </div>
+        </div>
+    </div>
+
+    <!-- Arrow -->
+    <div class="arrow-down">
+        <svg width="24" height="40" viewBox="0 0 24 40">
+            <line x1="12" y1="0" x2="12" y2="32" stroke="#7c3aed" stroke-width="2"/>
+            <polygon points="6,28 12,38 18,28" fill="#7c3aed"/>
+        </svg>
+    </div>
+
+    <!-- ==================== RENDER BACKEND ==================== -->
+    <div class="box" style="border-color: #60a5fa44;">
+        <div class="box-label blue">Render — Backend Server</div>
+        <div class="card-desc" style="margin-bottom: 14px; color: #60a5fa;">
+            FastAPI + Uvicorn &nbsp;|&nbsp; Python 3.11 &nbsp;|&nbsp; <span class="card-code">app.main:app</span>
+        </div>
+
+        <!-- API Routes -->
+        <div class="card">
+            <div class="card-title">API Routes</div>
+            <table class="routes-table">
+                <thead>
+                    <tr><th>Method</th><th>Endpoint</th><th>Description</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="method method-get">GET</span></td>
+                        <td class="route">/api/feed</td>
+                        <td>Top 5 ranked videos</td>
+                        <td><span class="status status-ok">OK</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="method method-get">GET</span></td>
+                        <td class="route">/api/videos/all</td>
+                        <td>All videos for Discover</td>
+                        <td><span class="status status-ok">OK</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="method method-get">GET</span></td>
+                        <td class="route">/api/videos/{id}</td>
+                        <td>Video detail + insights</td>
+                        <td><span class="status status-ok">OK</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="method method-post">POST</span></td>
+                        <td class="route">/api/pipeline</td>
+                        <td>Fetch + Rank videos</td>
+                        <td><span class="status status-ok">OK</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="method method-post">POST</span></td>
+                        <td class="route">/api/videos/{id}/extract</td>
+                        <td>Extract insights for a video</td>
+                        <td><span class="status status-error">BLOCKED</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pipeline -->
+        <div class="section-title">Pipeline Flow</div>
+        <div class="pipeline">
+            <div class="pipeline-step" style="border-color: #1e40af;">
+                <div class="pipeline-step-title" style="color: #60a5fa;">1. FETCH</div>
+                <div class="pipeline-step-desc">YouTube Data API v3<br>Get recent videos from channels<br>(last 7 days, skip Shorts)</div>
+                <div style="margin-top:6px"><span class="status status-ok">Works</span></div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step" style="border-color: #166534;">
+                <div class="pipeline-step-title" style="color: #4ade80;">2. RANK</div>
+                <div class="pipeline-step-desc">Score = breakout×0.4<br>+ like_ratio×0.35<br>+ comment_ratio×0.25</div>
+                <div style="margin-top:6px"><span class="status status-ok">Works</span></div>
+            </div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step" style="border-color: #991b1b;">
+                <div class="pipeline-step-title" style="color: #f87171;">3. EXTRACT</div>
+                <div class="pipeline-step-desc">Get transcript<br>+ Claude AI analysis<br>= Insights</div>
+                <div style="margin-top:6px"><span class="status status-error">Blocked</span></div>
+            </div>
+        </div>
+
+        <!-- Extraction Detail -->
+        <div class="section-title">Extraction Detail (The Bottleneck)</div>
+        <div class="extraction-flow">
+            <div class="extraction-step blocked">
+                <div class="ext-title" style="color: #f87171;">
+                    Step A: Get Transcript
+                </div>
+                <div class="ext-desc">
+                    <span class="card-code">youtube-transcript-api</span><br><br>
+                    1. GET <code>youtube.com/watch?v=...</code><br>
+                    → Parse page for captions<br><br>
+                    2. POST <code>youtubei/v1/player</code><br>
+                    → Fallback to get caption URLs<br><br>
+                    Both requests go through Cloudflare Worker proxy but YouTube returns data <strong style="color:#f87171">without captions</strong> because it detects cloud IP.
+                </div>
+                <div class="ext-arrow">→</div>
+            </div>
+            <div class="extraction-step ok">
+                <div class="ext-title" style="color: #4ade80;">
+                    Step B: Claude Analysis
+                </div>
+                <div class="ext-desc">
+                    <span class="card-code">Claude Haiku 4.5</span><br><br>
+                    Send transcript + prompt to Anthropic API.<br><br>
+                    Returns JSON with 5-10 insights, each containing:
+                    <br>• insight_text
+                    <br>• source_quote (verbatim)
+                    <br>• category
+                    <br>• start/end timestamps
+                </div>
+                <div class="ext-arrow">→</div>
+            </div>
+            <div class="extraction-step ok">
+                <div class="ext-title" style="color: #4ade80;">
+                    Step C: Save to DB
+                </div>
+                <div class="ext-desc">
+                    <span class="card-code">Neon PostgreSQL</span><br><br>
+                    Save insights to <code>insights</code> table.<br><br>
+                    Mark video as <code>processed=True</code>.<br><br>
+                    Data persists across deploys.
+                </div>
+            </div>
+        </div>
+
+        <!-- Blocked Banner -->
+        <div class="blocked-banner">
+            <div class="blocked-banner-icon">&#9888;&#65039;</div>
+            <div class="blocked-banner-text">
+                <strong>Current Issue:</strong> YouTube blocks transcript/caption data for all cloud provider IPs
+                (AWS, GCP, Azure, Cloudflare). The page loads (1.1MB HTML, status 200) but the embedded
+                player response has no captions. The innertube POST returns only 6KB instead of the expected 50KB+.
+                <br><br>
+                <strong>Proposed Fix:</strong> Switch innertube client context from "WEB" to "ANDROID" —
+                YouTube treats mobile API clients differently and is more likely to return full data from server IPs.
+            </div>
+        </div>
+    </div>
+
+    <!-- Arrow -->
+    <div class="arrow-down">
+        <svg width="24" height="40" viewBox="0 0 24 40">
+            <line x1="12" y1="0" x2="12" y2="32" stroke="#60a5fa" stroke-width="2"/>
+            <polygon points="6,28 12,38 18,28" fill="#60a5fa"/>
+        </svg>
+    </div>
+
+    <!-- ==================== EXTERNAL SERVICES ==================== -->
+    <div class="section-title" style="margin-top:0;">External Services</div>
+    <div class="flow-row">
+        <!-- Cloudflare Worker -->
+        <div class="box" style="border-color: #f9731644;">
+            <div class="box-label" style="color: #fb923c;">Cloudflare Worker</div>
+            <div class="card">
+                <div class="card-title" style="color: #fb923c;">yt-proxy</div>
+                <div class="card-desc">
+                    <span class="card-code">yt-proxy.sharmakriti275.workers.dev</span>
+                    <br><br>
+                    Proxies YouTube requests with browser-like headers + CONSENT cookie.
+                    <br><br>
+                    <strong>GET</strong> → Forwards to YouTube, returns response<br>
+                    <strong>POST</strong> → Forwards with body to YouTube
+                    <br><br>
+                    <span class="status status-warn">Partially works</span>
+                    <br><span style="font-size:11px;color:#888;margin-top:4px;display:block;">
+                        Requests succeed (200) but YouTube strips caption data for Cloudflare's cloud IPs.
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- YouTube -->
+        <div class="box" style="border-color: #ef444444;">
+            <div class="box-label red">YouTube</div>
+            <div class="card">
+                <div class="card-title" style="color: #f87171;">YouTube APIs</div>
+                <div class="card-desc">
+                    <strong style="color:#4ade80">Data API v3</strong> <span class="status status-ok" style="font-size:10px">OK</span>
+                    <br>Video metadata, stats, channel info.
+                    <br>Uses API key — no IP blocking.
+                    <br><br>
+                    <strong style="color:#f87171">Innertube API</strong> <span class="status status-error" style="font-size:10px">BLOCKED</span>
+                    <br>Transcript/captions data.
+                    <br>Blocks cloud provider IPs.
+                    <br><br>
+                    <strong style="color:#fbbf24">Embed API</strong> <span class="status status-warn" style="font-size:10px">PARTIAL</span>
+                    <br>Some videos disable embedding.
+                    <br>Fallback: "Watch on YouTube" link.
+                </div>
+            </div>
+        </div>
+
+        <!-- Anthropic -->
+        <div class="box" style="border-color: #4ade8044;">
+            <div class="box-label green">Anthropic</div>
+            <div class="card">
+                <div class="card-title" style="color: #4ade80;">Claude Haiku 4.5</div>
+                <div class="card-desc">
+                    <span class="card-code">claude-haiku-4-5-20251001</span>
+                    <br><br>
+                    Analyzes transcripts and extracts insights.
+                    <br>~$0.05 per video.
+                    <br><br>
+                    <span class="status status-ok">Works perfectly</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Database -->
+    <div class="box" style="border-color: #22d3ee44;">
+        <div class="box-label cyan">Neon PostgreSQL</div>
+        <div class="flow-row" style="margin-bottom:0;">
+            <div class="card">
+                <div class="card-title">channels</div>
+                <div class="card-desc" style="font-family:monospace;font-size:11px;">
+                    id, name, youtube_handle,<br>youtube_channel_id, created_at
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title">videos</div>
+                <div class="card-desc" style="font-family:monospace;font-size:11px;">
+                    id, channel_id, youtube_video_id,<br>title, views, likes, comments,<br>rank_score, processed, published_at
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title">insights</div>
+                <div class="card-desc" style="font-family:monospace;font-size:11px;">
+                    id, video_id, insight_text,<br>source_quote, category,<br>start_timestamp, end_timestamp
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #4ade80;"></div>
+            Working
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #fbbf24;"></div>
+            Partial
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #f87171;"></div>
+            Blocked
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #7c3aed;"></div>
+            User Interface
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #60a5fa;"></div>
+            Backend Server
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #22d3ee;"></div>
+            Database
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

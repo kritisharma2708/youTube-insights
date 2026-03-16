@@ -1,16 +1,18 @@
 import json
 import logging
 import re
-import subprocess
 import xml.etree.ElementTree as ET
+from difflib import SequenceMatcher
 
 import anthropic
+import assemblyai as aai
+import feedparser
 import requests
 from youtube_transcript_api import YouTubeTranscriptApi
 from sqlalchemy.orm import Session
 
-from app.config import ANTHROPIC_API_KEY, TRANSCRIPT_PROXY_URL
-from app.models.models import Video, Insight
+from app.config import ANTHROPIC_API_KEY, ASSEMBLYAI_API_KEY, TRANSCRIPT_PROXY_URL
+from app.models.models import Channel, Video, Insight
 
 logger = logging.getLogger(__name__)
 
@@ -72,11 +74,140 @@ class ProxiedSession(requests.Session):
 
 
 # ---------------------------------------------------------------------------
-# Method 1: youtube-transcript-api (with proxy)
+# Method 1: Podcast RSS + AssemblyAI transcription
+# ---------------------------------------------------------------------------
+
+def _transcript_via_podcast(video: Video) -> str:
+    """Fetch transcript by matching video to podcast episode and transcribing audio."""
+    channel = video.channel
+    if not channel or not channel.podcast_rss_url:
+        raise RuntimeError("Channel has no podcast RSS URL")
+
+    if not ASSEMBLYAI_API_KEY:
+        raise RuntimeError("ASSEMBLYAI_API_KEY not set")
+
+    print(f"[METHOD 1] Podcast RSS + AssemblyAI for: {video.title}", flush=True)
+
+    # Step 1: Fetch and parse RSS feed
+    print(f"[METHOD 1] Fetching RSS: {channel.podcast_rss_url}", flush=True)
+    feed = feedparser.parse(channel.podcast_rss_url)
+
+    if not feed.entries:
+        raise RuntimeError("RSS feed has no entries")
+
+    print(f"[METHOD 1] Found {len(feed.entries)} episodes in RSS feed", flush=True)
+
+    # Step 2: Match video title to podcast episode
+    audio_url = _find_matching_episode(video.title, feed.entries)
+
+    if not audio_url:
+        raise RuntimeError(f"No matching podcast episode found for: {video.title}")
+
+    print(f"[METHOD 1] Matched audio: {audio_url[:80]}...", flush=True)
+
+    # Step 3: Transcribe with AssemblyAI
+    print(f"[METHOD 1] Sending to AssemblyAI for transcription...", flush=True)
+    aai.settings.api_key = ASSEMBLYAI_API_KEY
+    transcriber = aai.Transcriber()
+    transcript_result = transcriber.transcribe(audio_url)
+
+    if transcript_result.status == aai.TranscriptStatus.error:
+        raise RuntimeError(f"AssemblyAI error: {transcript_result.error}")
+
+    # Step 4: Format transcript with timestamps
+    parts = []
+    if transcript_result.words:
+        # Group words into sentences/segments for readability
+        current_start = 0.0
+        current_words = []
+        for word in transcript_result.words:
+            if not current_words:
+                current_start = word.start / 1000.0  # ms to seconds
+            current_words.append(word.text)
+            # Create a new segment roughly every sentence or ~15 words
+            if (word.text.endswith(('.', '?', '!')) and len(current_words) > 5) or len(current_words) >= 15:
+                text = " ".join(current_words)
+                parts.append(f"[{current_start:.1f}s] {text}")
+                current_words = []
+        # Remaining words
+        if current_words:
+            text = " ".join(current_words)
+            parts.append(f"[{current_start:.1f}s] {text}")
+    elif transcript_result.text:
+        # Fallback: no word-level timestamps
+        parts.append(f"[0.0s] {transcript_result.text}")
+
+    if not parts:
+        raise RuntimeError("AssemblyAI returned empty transcript")
+
+    print(f"[METHOD 1] Transcription complete: {len(parts)} segments", flush=True)
+    return "\n".join(parts)
+
+
+def _find_matching_episode(video_title: str, entries: list) -> str:
+    """Find the podcast episode that best matches the video title."""
+    video_title_lower = video_title.lower()
+
+    best_match = None
+    best_score = 0.0
+
+    for entry in entries:
+        episode_title = entry.get("title", "")
+        # Calculate title similarity
+        score = SequenceMatcher(None, video_title_lower, episode_title.lower()).ratio()
+
+        if score > best_score:
+            best_score = score
+            # Get audio URL from enclosures
+            audio_url = None
+            for link in entry.get("links", []):
+                if link.get("type", "").startswith("audio/"):
+                    audio_url = link.get("href")
+                    break
+            # Also check enclosures
+            if not audio_url:
+                for enc in entry.get("enclosures", []):
+                    if enc.get("type", "").startswith("audio/"):
+                        audio_url = enc.get("href")
+                        break
+            if audio_url:
+                best_match = audio_url
+
+    # Require at least 40% title similarity
+    if best_score >= 0.4 and best_match:
+        print(f"[METHOD 1] Best match score: {best_score:.2f}", flush=True)
+        return best_match
+
+    # Fallback: try keyword matching
+    for entry in entries:
+        episode_title = entry.get("title", "").lower()
+        # Check if key words from video title appear in episode title
+        video_words = set(video_title_lower.split())
+        episode_words = set(episode_title.split())
+        # Remove common words
+        stop_words = {"the", "a", "an", "is", "in", "on", "at", "to", "for", "of", "and", "or", "|", "-", "with"}
+        video_words -= stop_words
+        episode_words -= stop_words
+        overlap = video_words & episode_words
+        if len(overlap) >= 3:
+            for link in entry.get("links", []):
+                if link.get("type", "").startswith("audio/"):
+                    print(f"[METHOD 1] Keyword match ({len(overlap)} words): {entry.get('title')}", flush=True)
+                    return link.get("href")
+            for enc in entry.get("enclosures", []):
+                if enc.get("type", "").startswith("audio/"):
+                    print(f"[METHOD 1] Keyword match ({len(overlap)} words): {entry.get('title')}", flush=True)
+                    return enc.get("href")
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Method 2: youtube-transcript-api (with proxy)
 # ---------------------------------------------------------------------------
 
 def _transcript_via_ytt_api(video_id: str) -> str:
-    print("[METHOD 1] youtube-transcript-api", flush=True)
+    print("[METHOD 2] youtube-transcript-api", flush=True)
     if TRANSCRIPT_PROXY_URL:
         session = ProxiedSession(TRANSCRIPT_PROXY_URL)
         ytt_api = YouTubeTranscriptApi(http_client=session)
@@ -90,19 +221,12 @@ def _transcript_via_ytt_api(video_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Method 2: Invidious API (community-run YouTube frontends)
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Method 2: Direct HTML parsing — extract captions from the YouTube page
-#            we already fetch successfully via proxy
+# Method 3: Direct HTML parsing
 # ---------------------------------------------------------------------------
 
 def _transcript_via_html_parsing(video_id: str) -> str:
-    """Parse captions directly from YouTube watch page HTML."""
-    print("[METHOD 2] Direct HTML parsing", flush=True)
+    print("[METHOD 3] Direct HTML parsing", flush=True)
 
-    # Fetch the watch page through proxy
     watch_url = f"https://www.youtube.com/watch?v={video_id}"
     if TRANSCRIPT_PROXY_URL:
         encoded = requests.utils.quote(watch_url, safe="")
@@ -110,57 +234,37 @@ def _transcript_via_html_parsing(video_id: str) -> str:
     else:
         fetch_url = watch_url
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-    resp = requests.get(fetch_url, headers=headers, timeout=30)
+    resp = requests.get(fetch_url, timeout=30)
     resp.raise_for_status()
     html = resp.text
-    print(f"[METHOD 2] Page fetched, length={len(html)}", flush=True)
 
-    # Try to find ytInitialPlayerResponse in the HTML
     caption_url = None
 
-    # Pattern 1: ytInitialPlayerResponse = {...}
     match = re.search(r'ytInitialPlayerResponse\s*=\s*(\{.+?\});', html)
     if match:
         try:
             player_data = json.loads(match.group(1))
-            print(f"[METHOD 2] Found ytInitialPlayerResponse, keys: {list(player_data.keys())}", flush=True)
             caption_url = _extract_caption_url(player_data)
-        except json.JSONDecodeError as e:
-            print(f"[METHOD 2] Failed to parse ytInitialPlayerResponse: {e}", flush=True)
+        except json.JSONDecodeError:
+            pass
 
-    # Pattern 2: Look for caption URLs directly in HTML
     if not caption_url:
-        # Caption URLs contain "timedtext" and "lang=en"
         matches = re.findall(r'(https?://[^"]*timedtext[^"]*)', html)
         for url in matches:
             url = url.replace('\\u0026', '&')
-            if 'lang=en' in url or 'lang%3Den' in url:
+            if 'lang=en' in url:
                 caption_url = url
-                print(f"[METHOD 2] Found caption URL in HTML directly", flush=True)
                 break
-        # Fallback: take first timedtext URL
         if not caption_url and matches:
             caption_url = matches[0].replace('\\u0026', '&')
-            print(f"[METHOD 2] Using first timedtext URL found", flush=True)
 
     if not caption_url:
-        # Log what we found for debugging
-        has_captions = '"captions"' in html
-        has_timedtext = 'timedtext' in html
-        print(f"[METHOD 2] No caption URL found. captions_in_html={has_captions}, timedtext_in_html={has_timedtext}", flush=True)
-        raise RuntimeError(f"No caption URL found in page HTML (captions={has_captions}, timedtext={has_timedtext})")
+        raise RuntimeError("No caption URL found in page HTML")
 
-    # Fetch the caption file (timedtext URLs are usually on a different domain)
     caption_url_clean = caption_url.replace('\\u0026', '&')
-    # Add json3 format if not already specified
     if 'fmt=' not in caption_url_clean:
         caption_url_clean += '&fmt=json3'
 
-    print(f"[METHOD 2] Fetching captions from: {caption_url_clean[:100]}...", flush=True)
     cap_resp = requests.get(caption_url_clean, timeout=30)
     cap_resp.raise_for_status()
 
@@ -172,121 +276,37 @@ def _transcript_via_html_parsing(video_id: str) -> str:
 
 
 def _extract_caption_url(player_data: dict):
-    """Extract English caption URL from ytInitialPlayerResponse."""
     captions = player_data.get("captions", {})
     renderer = captions.get("playerCaptionsTracklistRenderer", {})
     tracks = renderer.get("captionTracks", [])
-
     if not tracks:
         return None
-
-    # Find English track
     for track in tracks:
-        lang = track.get("languageCode", "")
-        if lang.startswith("en"):
+        if track.get("languageCode", "").startswith("en"):
             return track.get("baseUrl")
-
-    # Fallback to first track
-    if tracks:
-        return tracks[0].get("baseUrl")
-
-    return None
+    return tracks[0].get("baseUrl") if tracks else None
 
 
 def _parse_caption_xml(xml_text: str) -> str:
-    """Parse YouTube caption XML into timestamped transcript."""
     parts = []
     try:
         root = ET.fromstring(xml_text)
         for elem in root.findall('.//text'):
             start = float(elem.get('start', 0))
-            text = elem.text or ''
-            text = text.replace('&amp;', '&').replace('&#39;', "'").replace('&quot;', '"')
-            text = text.strip()
+            text = (elem.text or '').strip()
             if text:
                 parts.append(f"[{start:.1f}s] {text}")
     except ET.ParseError:
-        # Try json3 format
         try:
             data = json.loads(xml_text)
             for event in data.get("events", []):
-                start_ms = event.get("tStartMs", 0)
-                start_sec = start_ms / 1000.0
+                start_sec = event.get("tStartMs", 0) / 1000.0
                 segs = event.get("segs", [])
                 text = "".join(s.get("utf8", "") for s in segs).strip()
                 if text and text != "\n":
                     parts.append(f"[{start_sec:.1f}s] {text}")
         except (json.JSONDecodeError, KeyError):
             pass
-
-    return "\n".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# Method 3: yt-dlp with web client (no proxy, uses its own anti-detection)
-# ---------------------------------------------------------------------------
-
-def _transcript_via_ytdlp(video_id: str) -> str:
-    print("[METHOD 3] yt-dlp subtitles", flush=True)
-    url = f"https://www.youtube.com/watch?v={video_id}"
-
-    cmd = [
-        "yt-dlp",
-        "--skip-download",
-        "--write-subs",
-        "--write-auto-subs",
-        "--sub-langs", "en",
-        "--sub-format", "json3",
-        "--dump-json",
-        "--extractor-args", "youtube:player_client=web",
-        url,
-    ]
-
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    if result.returncode != 0:
-        raise RuntimeError(f"yt-dlp failed: {result.stderr[:300]}")
-
-    info = json.loads(result.stdout)
-
-    subs = info.get("subtitles", {})
-    auto_subs = info.get("automatic_captions", {})
-
-    sub_url = None
-    for lang_key in ["en", "en-US", "en-GB"]:
-        for source in [subs, auto_subs]:
-            if lang_key in source:
-                formats = source[lang_key]
-                for fmt in formats:
-                    if fmt.get("ext") == "json3":
-                        sub_url = fmt["url"]
-                        break
-                if not sub_url and formats:
-                    sub_url = formats[0]["url"]
-                if sub_url:
-                    break
-        if sub_url:
-            break
-
-    if not sub_url:
-        raise RuntimeError("No English subtitles found via yt-dlp")
-
-    print(f"[METHOD 3] Fetching subtitle from: {sub_url[:80]}...", flush=True)
-    resp = requests.get(sub_url, timeout=30)
-    resp.raise_for_status()
-
-    sub_data = resp.json()
-    parts = []
-    for event in sub_data.get("events", []):
-        start_ms = event.get("tStartMs", 0)
-        start_sec = start_ms / 1000.0
-        segs = event.get("segs", [])
-        text = "".join(s.get("utf8", "") for s in segs).strip()
-        if text and text != "\n":
-            parts.append(f"[{start_sec:.1f}s] {text}")
-
-    if not parts:
-        raise RuntimeError("yt-dlp subtitles were empty")
-
     return "\n".join(parts)
 
 
@@ -294,23 +314,37 @@ def _transcript_via_ytdlp(video_id: str) -> str:
 # Main transcript fetcher with fallback chain
 # ---------------------------------------------------------------------------
 
-def get_transcript(youtube_video_id: str) -> str:
+def get_transcript(video: Video) -> str:
     """Fetch transcript using a fallback chain of methods."""
-    methods = [
-        ("youtube-transcript-api", _transcript_via_ytt_api),
-        ("html-parsing", _transcript_via_html_parsing),
-        ("yt-dlp", _transcript_via_ytdlp),
-    ]
-
     errors = []
-    for name, method in methods:
+
+    # Method 1: Podcast RSS + AssemblyAI (best for podcast channels)
+    if video.channel and video.channel.podcast_rss_url and ASSEMBLYAI_API_KEY:
         try:
-            transcript = method(youtube_video_id)
-            print(f"[TRANSCRIPT] Success with {name}!", flush=True)
+            transcript = _transcript_via_podcast(video)
+            print(f"[TRANSCRIPT] Success with podcast RSS + AssemblyAI!", flush=True)
             return transcript
         except Exception as e:
-            print(f"[TRANSCRIPT] {name} failed: {e}", flush=True)
-            errors.append(f"{name}: {e}")
+            print(f"[TRANSCRIPT] podcast failed: {e}", flush=True)
+            errors.append(f"podcast: {e}")
+
+    # Method 2: youtube-transcript-api (works locally, blocked on cloud)
+    try:
+        transcript = _transcript_via_ytt_api(video.youtube_video_id)
+        print(f"[TRANSCRIPT] Success with youtube-transcript-api!", flush=True)
+        return transcript
+    except Exception as e:
+        print(f"[TRANSCRIPT] youtube-transcript-api failed: {e}", flush=True)
+        errors.append(f"youtube-transcript-api: {e}")
+
+    # Method 3: Direct HTML parsing
+    try:
+        transcript = _transcript_via_html_parsing(video.youtube_video_id)
+        print(f"[TRANSCRIPT] Success with html-parsing!", flush=True)
+        return transcript
+    except Exception as e:
+        print(f"[TRANSCRIPT] html-parsing failed: {e}", flush=True)
+        errors.append(f"html-parsing: {e}")
 
     raise RuntimeError(
         "All transcript methods failed:\n" + "\n".join(errors)
@@ -338,12 +372,10 @@ def parse_claude_response(response_text: str) -> list[dict]:
     if text.endswith("```"):
         text = text.rsplit("```", 1)[0]
     text = text.strip()
-
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
         return []
-
     return data.get("insights", [])
 
 
@@ -356,7 +388,7 @@ def extract_insights(db: Session, video_id: int) -> list[Insight]:
     if not video:
         return []
 
-    transcript = get_transcript(video.youtube_video_id)
+    transcript = get_transcript(video)
     prompt = EXTRACTION_PROMPT_TEMPLATE.format(title=video.title, transcript=transcript)
     response = call_claude(prompt)
     raw_insights = parse_claude_response(response)

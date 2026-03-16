@@ -13,6 +13,7 @@ class Channel(Base):
     name = Column(String, nullable=False)
     youtube_handle = Column(String, unique=True, nullable=False)
     youtube_channel_id = Column(String, unique=True, nullable=True)
+    podcast_rss_url = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     videos = relationship("Video", back_populates="channel")
