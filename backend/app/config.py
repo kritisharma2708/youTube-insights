@@ -18,8 +18,9 @@ SEED_CHANNELS = [
         "podcast_rss_url": "https://api.substack.com/feed/podcast/10845.rss",
     },
     {
-        "name": "Think School",
-        "youtube_handle": "@ThinkSchool",
+        "name": "Raj Shamani",
+        "youtube_handle": "@rajshamani",
+        "podcast_rss_url": "https://anchor.fm/s/f5347ab0/podcast/rss",
     },
     {
         "name": "Dwarkesh Patel",
