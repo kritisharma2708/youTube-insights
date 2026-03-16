@@ -7,12 +7,23 @@ from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 
+from sqlalchemy import inspect, text
+
 from app.config import APP_API_KEY
 from app.database import Base, engine
 from app.routers import feed, pipeline, videos
 from app.services.scheduler import start_scheduler, stop_scheduler
 
 Base.metadata.create_all(bind=engine)
+
+# Add missing columns to existing tables (lightweight migration)
+with engine.connect() as conn:
+    inspector = inspect(engine)
+    channels_cols = {c["name"] for c in inspector.get_columns("channels")}
+    if "podcast_rss_url" not in channels_cols:
+        conn.execute(text("ALTER TABLE channels ADD COLUMN podcast_rss_url VARCHAR"))
+        conn.commit()
+        print("[MIGRATION] Added podcast_rss_url column to channels")
 
 
 @asynccontextmanager
