@@ -4,8 +4,9 @@ import re
 import xml.etree.ElementTree as ET
 from difflib import SequenceMatcher
 
+import time
+
 import anthropic
-import assemblyai as aai
 import feedparser
 import requests
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -105,38 +106,53 @@ def _transcript_via_podcast(video: Video) -> str:
 
     print(f"[METHOD 1] Matched audio: {audio_url[:80]}...", flush=True)
 
-    # Step 3: Transcribe with AssemblyAI
+    # Step 3: Transcribe with AssemblyAI (raw HTTP API)
     print(f"[METHOD 1] Sending to AssemblyAI for transcription...", flush=True)
-    aai.settings.api_key = ASSEMBLYAI_API_KEY
-    config = aai.TranscriptionConfig(speech_model=aai.SpeechModel.best)
-    transcriber = aai.Transcriber(config=config)
-    transcript_result = transcriber.transcribe(audio_url)
+    headers = {"authorization": ASSEMBLYAI_API_KEY}
+    resp = requests.post(
+        "https://api.assemblyai.com/v2/transcript",
+        json={"audio_url": audio_url, "speech_models": ["universal-2"]},
+        headers=headers,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    transcript_id = resp.json()["id"]
+    print(f"[METHOD 1] Transcript ID: {transcript_id}, polling...", flush=True)
 
-    if transcript_result.status == aai.TranscriptStatus.error:
-        raise RuntimeError(f"AssemblyAI error: {transcript_result.error}")
+    # Poll for completion
+    for _ in range(120):  # max ~10 min
+        poll = requests.get(
+            f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
+            headers=headers,
+            timeout=30,
+        )
+        poll.raise_for_status()
+        data = poll.json()
+        if data["status"] == "completed":
+            break
+        elif data["status"] == "error":
+            raise RuntimeError(f"AssemblyAI error: {data.get('error')}")
+        time.sleep(5)
+    else:
+        raise RuntimeError("AssemblyAI transcription timed out")
 
     # Step 4: Format transcript with timestamps
     parts = []
-    if transcript_result.words:
-        # Group words into sentences/segments for readability
+    words = data.get("words", [])
+    if words:
         current_start = 0.0
         current_words = []
-        for word in transcript_result.words:
+        for word in words:
             if not current_words:
-                current_start = word.start / 1000.0  # ms to seconds
-            current_words.append(word.text)
-            # Create a new segment roughly every sentence or ~15 words
-            if (word.text.endswith(('.', '?', '!')) and len(current_words) > 5) or len(current_words) >= 15:
-                text = " ".join(current_words)
-                parts.append(f"[{current_start:.1f}s] {text}")
+                current_start = word["start"] / 1000.0
+            current_words.append(word["text"])
+            if (word["text"].endswith(('.', '?', '!')) and len(current_words) > 5) or len(current_words) >= 15:
+                parts.append(f"[{current_start:.1f}s] {' '.join(current_words)}")
                 current_words = []
-        # Remaining words
         if current_words:
-            text = " ".join(current_words)
-            parts.append(f"[{current_start:.1f}s] {text}")
-    elif transcript_result.text:
-        # Fallback: no word-level timestamps
-        parts.append(f"[0.0s] {transcript_result.text}")
+            parts.append(f"[{current_start:.1f}s] {' '.join(current_words)}")
+    elif data.get("text"):
+        parts.append(f"[0.0s] {data['text']}")
 
     if not parts:
         raise RuntimeError("AssemblyAI returned empty transcript")
