@@ -70,7 +70,13 @@ def test_extract_insights(mock_claude, mock_transcript, db_session):
     mock_transcript.return_value = "This is the transcript text..."
     mock_claude.return_value = SAMPLE_CLAUDE_RESPONSE
 
-    insights = extract_insights(db_session, video.id)
+    # Patch SessionLocal so extract_insights uses the test DB session
+    # Prevent close() from detaching objects in test
+    original_close = db_session.close
+    db_session.close = lambda: None
+    with patch("app.services.extractor.SessionLocal", return_value=db_session):
+        insights = extract_insights(video.id)
+    db_session.close = original_close
     assert len(insights) == 3
     assert insights[0].order == 0
     assert insights[1].order == 1

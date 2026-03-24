@@ -13,6 +13,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from sqlalchemy.orm import Session
 
 from app.config import ANTHROPIC_API_KEY, ASSEMBLYAI_API_KEY, TRANSCRIPT_PROXY_URL
+from app.database import SessionLocal
 from app.models.models import Channel, Video, Insight
 
 logger = logging.getLogger(__name__)
@@ -413,62 +414,72 @@ def parse_claude_response(response_text: str) -> list[dict]:
 # Main extraction pipeline
 # ---------------------------------------------------------------------------
 
-def _fresh_db():
-    """Create a brand new DB session with a fresh connection."""
-    from app.database import SessionLocal
-    return SessionLocal()
+def extract_insights(video_id: int) -> list[Insight]:
+    """Extract insights for a video. Manages its own DB sessions to survive long waits."""
 
-
-def extract_insights(db: Session, video_id: int) -> list[Insight]:
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        return []
-
-    # Grab what we need before the long-running operations
-    video_title = video.title
-
-    # Use cached transcript if available
-    if video.transcript:
-        print(f"[TRANSCRIPT] Using cached transcript ({len(video.transcript)} chars)", flush=True)
-        transcript = video.transcript
-    else:
-        # These steps can take minutes (AssemblyAI transcription + Claude call)
-        # The DB connection WILL die during this wait on Neon PostgreSQL
-        transcript = get_transcript(video)
-
-        # Close dead session, open fresh one to cache transcript
-        db.close()
-        db = _fresh_db()
+    # Step 1: Read video info with a short-lived session
+    db = SessionLocal()
+    try:
         video = db.query(Video).filter(Video.id == video_id).first()
-        video.transcript = transcript
-        db.commit()
-        print(f"[TRANSCRIPT] Cached transcript ({len(transcript)} chars)", flush=True)
+        if not video:
+            return []
+        video_title = video.title
+        cached_transcript = video.transcript
+        # Load channel info while session is alive (needed by get_transcript)
+        channel = video.channel
+        channel_podcast_rss = channel.podcast_rss_url if channel else None
+    finally:
+        db.close()
 
+    # Step 2: Get transcript (may take minutes for AssemblyAI)
+    if cached_transcript:
+        print(f"[TRANSCRIPT] Using cached transcript ({len(cached_transcript)} chars)", flush=True)
+        transcript = cached_transcript
+    else:
+        # Need the video object with channel loaded for get_transcript
+        db = SessionLocal()
+        try:
+            video = db.query(Video).filter(Video.id == video_id).first()
+            transcript = get_transcript(video)
+        finally:
+            db.close()
+
+        # Cache transcript with a fresh session
+        db = SessionLocal()
+        try:
+            video = db.query(Video).filter(Video.id == video_id).first()
+            video.transcript = transcript
+            db.commit()
+            print(f"[TRANSCRIPT] Cached transcript ({len(transcript)} chars)", flush=True)
+        finally:
+            db.close()
+
+    # Step 3: Call Claude (quick, ~10s)
     prompt = EXTRACTION_PROMPT_TEMPLATE.format(title=video_title, transcript=transcript)
     response = call_claude(prompt)
     raw_insights = parse_claude_response(response)
 
-    # Fresh session for saving insights (in case Claude call was also slow)
-    db.close()
-    db = _fresh_db()
-    video = db.query(Video).filter(Video.id == video_id).first()
+    # Step 4: Save insights with a fresh session
+    db = SessionLocal()
+    try:
+        video = db.query(Video).filter(Video.id == video_id).first()
+        insights = []
+        for i, raw in enumerate(raw_insights):
+            insight = Insight(
+                video_id=video.id,
+                insight_text=raw["insight_text"],
+                source_quote=raw.get("source_quote", ""),
+                category=raw["category"],
+                start_timestamp=raw["start_timestamp"],
+                end_timestamp=raw["end_timestamp"],
+                order=i,
+            )
+            db.add(insight)
+            insights.append(insight)
 
-    insights = []
-    for i, raw in enumerate(raw_insights):
-        insight = Insight(
-            video_id=video.id,
-            insight_text=raw["insight_text"],
-            source_quote=raw.get("source_quote", ""),
-            category=raw["category"],
-            start_timestamp=raw["start_timestamp"],
-            end_timestamp=raw["end_timestamp"],
-            order=i,
-        )
-        db.add(insight)
-        insights.append(insight)
-
-    video.processed = True
-    video.extracting = False
-    db.commit()
-    db.close()
-    return insights
+        video.processed = True
+        video.extracting = False
+        db.commit()
+        return insights
+    finally:
+        db.close()

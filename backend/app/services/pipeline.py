@@ -53,7 +53,7 @@ def run_pipeline(db: Session, top_n: int = 5, extract: bool = False) -> dict:
                 break
 
             try:
-                insights = extract_insights(db, video.id)
+                insights = extract_insights(video.id)
                 processed += 1
                 logger.info(f"Extracted {len(insights)} insights from: {video.title}")
             except Exception as e:

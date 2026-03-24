@@ -17,6 +17,7 @@ router = APIRouter()
 
 def _extract_in_background(video_id: int):
     """Run extraction in a background thread with its own DB session."""
+    # Set extracting flag
     db = SessionLocal()
     try:
         video = db.query(Video).filter(Video.id == video_id).first()
@@ -24,22 +25,26 @@ def _extract_in_background(video_id: int):
             return
         video.extracting = True
         db.commit()
+    finally:
+        db.close()
 
-        extract_insights(db, video_id)
+    # Run extraction (manages its own DB sessions internally)
+    try:
+        extract_insights(video_id)
         logger.info(f"Background extraction complete for video {video_id}")
     except Exception as e:
         logger.error(f"Background extraction failed for video {video_id}: {e}")
         # Reset extracting flag so user can retry
+        db2 = SessionLocal()
         try:
-            db.expire_all()
-            video = db.query(Video).filter(Video.id == video_id).first()
+            video = db2.query(Video).filter(Video.id == video_id).first()
             if video:
                 video.extracting = False
-                db.commit()
+                db2.commit()
         except Exception:
             pass
-    finally:
-        db.close()
+        finally:
+            db2.close()
 
 
 @router.get("/videos/{video_id}", response_model=VideoResponse)
