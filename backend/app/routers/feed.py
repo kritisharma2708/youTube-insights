@@ -1,12 +1,13 @@
 import math
-from typing import List
+from datetime import datetime, timedelta, timezone, date
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.models import Video
-from app.schemas.schemas import FeedResponse, VideoSummary
+from app.schemas.schemas import FeedResponse, VideoSummary, WeekFeedResponse, WeekSummary
 
 router = APIRouter()
 
@@ -25,22 +26,72 @@ def _to_summary(v: Video) -> VideoSummary:
     )
 
 
-@router.get("/feed", response_model=FeedResponse)
+def _get_monday(d: date) -> date:
+    """Return Monday of the week containing date d."""
+    return d - timedelta(days=d.weekday())
+
+
+@router.get("/feed", response_model=WeekFeedResponse)
 def get_feed(
+    week_start: Optional[str] = Query(None, description="ISO date YYYY-MM-DD of the week's Monday"),
     db: Session = Depends(get_db),
 ):
-    """Top 5 ranked videos regardless of processed status."""
+    """Videos for a given week, ordered by rank_score descending."""
+    today = date.today()
+    current_monday = _get_monday(today)
+
+    if week_start:
+        try:
+            monday = date.fromisoformat(week_start)
+        except ValueError:
+            monday = current_monday
+        # Snap to Monday
+        monday = _get_monday(monday)
+    else:
+        monday = current_monday
+
+    sunday = monday + timedelta(days=6)
+    is_current_week = monday == current_monday
+
+    # Convert to datetime for DB query
+    start_dt = datetime(monday.year, monday.month, monday.day, tzinfo=timezone.utc)
+    end_dt = datetime(sunday.year, sunday.month, sunday.day, 23, 59, 59, tzinfo=timezone.utc)
+
     videos = (
         db.query(Video)
+        .filter(Video.published_at >= start_dt, Video.published_at <= end_dt)
         .order_by(Video.rank_score.desc())
-        .limit(5)
         .all()
     )
 
-    return FeedResponse(
+    # Check if any videos exist before this week
+    has_previous_week = (
+        db.query(Video)
+        .filter(Video.published_at < start_dt)
+        .first()
+    ) is not None
+
+    videos_with_insights = sum(1 for v in videos if len(v.insights) > 0)
+
+    # Build week label like "Mar 10-16" or "Mar 28 - Apr 3"
+    if monday.month == sunday.month:
+        week_label = f"{monday.strftime('%b')} {monday.day}-{sunday.day}"
+    else:
+        week_label = f"{monday.strftime('%b')} {monday.day} - {sunday.strftime('%b')} {sunday.day}"
+
+    week = WeekSummary(
+        week_start=monday.isoformat(),
+        week_end=sunday.isoformat(),
+        week_label=week_label,
+        total_videos=len(videos),
+        videos_with_insights=videos_with_insights,
+        has_previous_week=has_previous_week,
+        is_current_week=is_current_week,
+    )
+
+    return WeekFeedResponse(
         videos=[_to_summary(v) for v in videos],
-        page=1,
-        total_pages=1,
+        week=week,
     )
 
 

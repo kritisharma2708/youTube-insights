@@ -942,6 +942,54 @@
             to { opacity: 1; transform: translateY(0); }
         }
         .animate-in { animation: fadeIn 0.3s ease forwards; }
+
+        /* Week navigator */
+        .week-nav {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .week-nav-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--fg);
+            text-align: center;
+            min-width: 160px;
+        }
+        .week-nav-sub {
+            font-size: 11px;
+            color: var(--muted);
+            font-weight: 500;
+            margin-top: 2px;
+        }
+        .week-nav-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--fg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .week-nav-btn:hover:not(:disabled) {
+            background: var(--card-hover);
+            border-color: var(--primary);
+        }
+        .week-nav-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        .week-nav-btn svg {
+            width: 16px;
+            height: 16px;
+        }
     </style>
 </head>
 <body>
@@ -1109,45 +1157,117 @@
         }
 
         // --- FEED ---
+        let currentWeekStart = null; // null = current week
+
+        function toLocalDateStr(d) {
+            // Format as YYYY-MM-DD using local timezone (avoids UTC shift from toISOString)
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+
+        function getMondayOfCurrentWeek() {
+            const now = new Date();
+            const day = now.getDay();
+            const diff = day === 0 ? 6 : day - 1; // Sunday=6 days back, else day-1
+            const monday = new Date(now);
+            monday.setDate(now.getDate() - diff);
+            return toLocalDateStr(monday);
+        }
+
+        function changeWeek(direction) {
+            if (!currentWeekStart) {
+                currentWeekStart = getMondayOfCurrentWeek();
+            }
+            const d = new Date(currentWeekStart + 'T00:00:00');
+            d.setDate(d.getDate() + (direction * 7));
+            const currentMonday = getMondayOfCurrentWeek();
+            const newStart = toLocalDateStr(d);
+            // Don't go past current week
+            if (newStart > currentMonday) {
+                currentWeekStart = null;
+            } else {
+                currentWeekStart = newStart;
+            }
+            loadFeed();
+        }
+
+        function setupSwipeGestures() {
+            const c = document.getElementById('feed-container');
+            let startX = 0, startY = 0, tracking = false;
+            c.addEventListener('touchstart', e => {
+                startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
+                tracking = true;
+            }, { passive: true });
+            c.addEventListener('touchmove', e => {
+                if (!tracking) return;
+                const deltaY = Math.abs(e.touches[0].clientY - startY);
+                const deltaX = Math.abs(e.touches[0].clientX - startX);
+                // If scrolling vertically, stop tracking
+                if (deltaY > deltaX && deltaY > 10) tracking = false;
+            }, { passive: true });
+            c.addEventListener('touchend', e => {
+                if (!tracking) return;
+                const endX = e.changedTouches[0].clientX;
+                const deltaX = endX - startX;
+                if (Math.abs(deltaX) > 50) {
+                    // Swipe left = next week (+1), swipe right = previous week (-1)
+                    changeWeek(deltaX < 0 ? 1 : -1);
+                }
+                tracking = false;
+            }, { passive: true });
+        }
+
         function loadFeed() {
             const c = document.getElementById('feed-container');
-            c.innerHTML = '<div class="loading"><div class="spinner"></div>Loading top picks...</div>';
-            api('/feed')
+            c.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+            const params = currentWeekStart ? `?week_start=${currentWeekStart}` : '';
+            api('/feed' + params)
                 .then(data => {
-                    if (data.videos.length === 0) {
-                        c.innerHTML = `
-                            <div class="empty-state">
-                                <p style="font-size:32px;margin-bottom:12px">&#127916;</p>
-                                <p style="font-size:16px;font-weight:600;color:var(--fg)">No videos yet</p>
-                                <p class="subtitle">Run the pipeline to fetch and process videos.</p>
-                                <button class="btn-primary" style="margin-top:20px" onclick="runPipeline(this)">
-                                    ${ICONS.refresh} Run Pipeline
-                                </button>
-                                <div class="pipeline-status" id="pipelineStatus"></div>
-                            </div>`;
-                        return;
-                    }
+                    const week = data.week;
+                    const chevronLeft = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>';
+                    const chevronRight = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>';
+
                     let html = `
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-                            <div style="font-size:12px;color:var(--muted);font-weight:500">TOP 5 THIS WEEK</div>
-                            <div style="display:flex;gap:8px;align-items:center">
-                                <button class="btn-extract" onclick="loadFeed()" style="margin-top:0;font-size:11px;padding:6px 12px">
-                                    ${ICONS.refresh} Refresh
-                                </button>
-                                <button class="btn-extract" onclick="runPipeline(this)" style="margin-top:0;font-size:11px;padding:6px 12px;border-color:var(--accent);color:var(--accent)">
-                                    ${ICONS.zap} Fetch New
-                                </button>
+                        <div class="week-nav">
+                            <button class="week-nav-btn" onclick="changeWeek(-1)" ${!week.has_previous_week ? 'disabled' : ''}>
+                                ${chevronLeft}
+                            </button>
+                            <div class="week-nav-label">
+                                ${week.is_current_week ? 'This Week' : week.week_label}
+                                <div class="week-nav-sub">${week.is_current_week ? week.week_label + ' &middot; ' : ''}${week.total_videos} video${week.total_videos !== 1 ? 's' : ''}${week.videos_with_insights > 0 ? ', ' + week.videos_with_insights + ' with insights' : ''}</div>
                             </div>
+                            <button class="week-nav-btn" onclick="changeWeek(1)" ${week.is_current_week ? 'disabled' : ''}>
+                                ${chevronRight}
+                            </button>
+                        </div>
+                        <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:16px">
+                            <button class="btn-extract" onclick="loadFeed()" style="margin-top:0;font-size:11px;padding:6px 12px">
+                                ${ICONS.refresh} Refresh
+                            </button>
+                            <button class="btn-extract" onclick="runPipeline(this)" style="margin-top:0;font-size:11px;padding:6px 12px;border-color:var(--accent);color:var(--accent)">
+                                ${ICONS.zap} Fetch New
+                            </button>
                         </div>
                         <div class="pipeline-status" id="pipelineStatus" style="margin:-10px 0 14px"></div>
                     `;
 
-                    let firstUnprocessedId = null;
+                    if (data.videos.length === 0) {
+                        html += `
+                            <div class="empty-state">
+                                <p style="font-size:32px;margin-bottom:12px">&#128247;</p>
+                                <p style="font-size:16px;font-weight:600;color:var(--fg)">No videos this week</p>
+                                <p class="subtitle">${week.is_current_week ? 'Run the pipeline to fetch new videos.' : 'No videos were published this week.'}</p>
+                                ${week.is_current_week ? `<button class="btn-primary" style="margin-top:20px" onclick="runPipeline(this)">${ICONS.refresh} Run Pipeline</button>` : ''}
+                            </div>`;
+                        c.innerHTML = html;
+                        return;
+                    }
+
                     data.videos.forEach((v, idx) => {
                         const hasInsights = v.insight_count > 0;
-                        if (!hasInsights && firstUnprocessedId === null) {
-                            firstUnprocessedId = v.id;
-                        }
                         html += `
                             <div class="feed-card animate-in" style="animation-delay:${idx * 60}ms">
                                 <div class="feed-card-header">
@@ -1188,12 +1308,6 @@
                     });
 
                     c.innerHTML = html;
-
-                    // Auto-extract the first unprocessed video
-                    if (firstUnprocessedId !== null) {
-                        const btn = document.getElementById(`extract-btn-${firstUnprocessedId}`);
-                        if (btn) extractVideo(firstUnprocessedId, btn);
-                    }
                 })
                 .catch(err => {
                     c.innerHTML = `<div class="empty-state"><p>Failed to load feed</p><p class="subtitle">${err.message}</p>
@@ -1569,6 +1683,7 @@
 
         // --- Init ---
         loadFeed();
+        setupSwipeGestures();
 
         // Register service worker for PWA
         if ('serviceWorker' in navigator) {
