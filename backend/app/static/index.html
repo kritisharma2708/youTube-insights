@@ -1152,6 +1152,12 @@
             if (h > 0) return h + 'h ' + min + 'min';
             return min + ' min';
         }
+        function isDurationOver90(iso) {
+            if (!iso) return false;
+            const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+            if (!m) return false;
+            return (parseInt(m[1]||0)*60 + parseInt(m[2]||0) + parseInt(m[3]||0)/60) > 90;
+        }
         function categoryLabel(cat) {
             return { takeaway: 'Key Takeaway', action: 'Action Item', quote: 'Notable Quote' }[cat] || cat;
         }
@@ -1268,7 +1274,7 @@
                     let firstUnprocessedId = null;
                     data.videos.forEach((v, idx) => {
                         const hasInsights = v.insight_count > 0;
-                        if (!hasInsights && !v.extracting && firstUnprocessedId === null) {
+                        if (!hasInsights && !v.extracting && !isDurationOver90(v.duration) && firstUnprocessedId === null) {
                             firstUnprocessedId = v.id;
                         }
                         html += `
@@ -1299,6 +1305,12 @@
                                         ${ICONS.chevron}
                                     </button>
                                     <div class="insights-panel" id="insights-panel-${v.id}" data-video-id="${v.id}" data-loaded="false"></div>
+                                ` : isDurationOver90(v.duration) ? `
+                                    <div style="padding:0 16px 14px">
+                                        <button class="btn-extract" disabled style="opacity:0.4;cursor:default">
+                                            ${ICONS.clock} Video too long (90min+ limit)
+                                        </button>
+                                    </div>
                                 ` : v.extracting ? `
                                     <div style="padding:0 16px 14px" id="extract-area-${v.id}">
                                         <button class="btn-extract" id="extract-btn-${v.id}" disabled>
@@ -1409,7 +1421,14 @@
         }
 
         function pollExtraction(videoId, btn) {
+            const startTime = Date.now();
+            const maxWait = 10 * 60 * 1000; // 10 min timeout
             const poll = () => {
+                if (Date.now() - startTime > maxWait) {
+                    btn.innerHTML = `${ICONS.zap} Retry`;
+                    btn.disabled = false;
+                    return;
+                }
                 api(`/videos/${videoId}/status`)
                     .then(data => {
                         if (data.status === 'done') {
@@ -1419,7 +1438,7 @@
                             btn.style.borderColor = 'var(--primary)';
                             setTimeout(() => loadFeed(), 1200);
                         } else if (data.status === 'extracting') {
-                            setTimeout(poll, 3000);
+                            setTimeout(poll, 5000);
                         } else {
                             btn.innerHTML = `${ICONS.zap} Retry`;
                             btn.disabled = false;
@@ -1430,7 +1449,7 @@
                         btn.disabled = false;
                     });
             };
-            setTimeout(poll, 3000);
+            setTimeout(poll, 5000);
         }
 
         // --- PIPELINE ---
