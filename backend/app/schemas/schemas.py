@@ -57,6 +57,7 @@ class VideoSummary(BaseModel):
     rank_score: float
     channel_name: str
     insight_count: int
+    extracting: bool = False
 
     model_config = {"from_attributes": True}
 

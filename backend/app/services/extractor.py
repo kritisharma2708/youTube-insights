@@ -121,7 +121,7 @@ def _transcript_via_podcast(video: Video) -> str:
     print(f"[METHOD 1] Transcript ID: {transcript_id}, polling...", flush=True)
 
     # Poll for completion
-    for _ in range(120):  # max ~10 min
+    for _ in range(240):  # max ~20 min
         poll = requests.get(
             f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
             headers=headers,
@@ -231,6 +231,18 @@ def _transcript_via_ytt_api(video_id: str) -> str:
         ytt_api = YouTubeTranscriptApi(http_client=session)
     else:
         ytt_api = YouTubeTranscriptApi()
+    # Try English first, then Hindi
+    for lang in [("en",), ("hi",)]:
+        try:
+            result = ytt_api.fetch(video_id, languages=lang)
+            parts = []
+            for snippet in result.snippets:
+                parts.append(f"[{snippet.start:.1f}s] {snippet.text}")
+            print(f"[METHOD 2] Got transcript in {lang[0]}", flush=True)
+            return "\n".join(parts)
+        except Exception:
+            continue
+    # Fall back to default (any language)
     result = ytt_api.fetch(video_id)
     parts = []
     for snippet in result.snippets:
@@ -336,7 +348,16 @@ def get_transcript(video: Video) -> str:
     """Fetch transcript using a fallback chain of methods."""
     errors = []
 
-    # Method 1: Podcast RSS + AssemblyAI (best for podcast channels)
+    # Method 1: youtube-transcript-api (fast, works locally, blocked on cloud)
+    try:
+        transcript = _transcript_via_ytt_api(video.youtube_video_id)
+        print(f"[TRANSCRIPT] Success with youtube-transcript-api!", flush=True)
+        return transcript
+    except Exception as e:
+        print(f"[TRANSCRIPT] youtube-transcript-api failed: {e}", flush=True)
+        errors.append(f"youtube-transcript-api: {e}")
+
+    # Method 2: Podcast RSS + AssemblyAI (slow but works on cloud)
     if video.channel and video.channel.podcast_rss_url and ASSEMBLYAI_API_KEY:
         try:
             transcript = _transcript_via_podcast(video)
@@ -345,15 +366,6 @@ def get_transcript(video: Video) -> str:
         except Exception as e:
             print(f"[TRANSCRIPT] podcast failed: {e}", flush=True)
             errors.append(f"podcast: {e}")
-
-    # Method 2: youtube-transcript-api (works locally, blocked on cloud)
-    try:
-        transcript = _transcript_via_ytt_api(video.youtube_video_id)
-        print(f"[TRANSCRIPT] Success with youtube-transcript-api!", flush=True)
-        return transcript
-    except Exception as e:
-        print(f"[TRANSCRIPT] youtube-transcript-api failed: {e}", flush=True)
-        errors.append(f"youtube-transcript-api: {e}")
 
     # Method 3: Direct HTML parsing
     try:
@@ -409,9 +421,20 @@ def extract_insights(db: Session, video_id: int) -> list[Insight]:
     # Grab what we need before the long-running operations
     video_title = video.title
 
-    # These steps can take minutes (AssemblyAI transcription + Claude call)
-    # so the DB connection may drop during this time
-    transcript = get_transcript(video)
+    # Use cached transcript if available
+    if video.transcript:
+        print(f"[TRANSCRIPT] Using cached transcript ({len(video.transcript)} chars)", flush=True)
+        transcript = video.transcript
+    else:
+        # These steps can take minutes (AssemblyAI transcription + Claude call)
+        transcript = get_transcript(video)
+        # Cache transcript for future use — refresh connection first
+        db.expire_all()
+        video = db.query(Video).filter(Video.id == video_id).first()
+        video.transcript = transcript
+        db.commit()
+        print(f"[TRANSCRIPT] Cached transcript ({len(transcript)} chars)", flush=True)
+
     prompt = EXTRACTION_PROMPT_TEMPLATE.format(title=video_title, transcript=transcript)
     response = call_claude(prompt)
     raw_insights = parse_claude_response(response)
@@ -435,5 +458,6 @@ def extract_insights(db: Session, video_id: int) -> list[Insight]:
         insights.append(insight)
 
     video.processed = True
+    video.extracting = False
     db.commit()
     return insights

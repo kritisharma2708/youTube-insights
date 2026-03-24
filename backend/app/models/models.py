@@ -34,6 +34,8 @@ class Video(Base):
     thumbnail_url = Column(String, nullable=True)
     rank_score = Column(Float, default=0.0)
     processed = Column(Boolean, default=False)
+    extracting = Column(Boolean, default=False)
+    transcript = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     channel = relationship("Channel", back_populates="videos")

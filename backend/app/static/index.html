@@ -1268,7 +1268,7 @@
                     let firstUnprocessedId = null;
                     data.videos.forEach((v, idx) => {
                         const hasInsights = v.insight_count > 0;
-                        if (!hasInsights && firstUnprocessedId === null) {
+                        if (!hasInsights && !v.extracting && firstUnprocessedId === null) {
                             firstUnprocessedId = v.id;
                         }
                         html += `
@@ -1299,6 +1299,12 @@
                                         ${ICONS.chevron}
                                     </button>
                                     <div class="insights-panel" id="insights-panel-${v.id}" data-video-id="${v.id}" data-loaded="false"></div>
+                                ` : v.extracting ? `
+                                    <div style="padding:0 16px 14px" id="extract-area-${v.id}">
+                                        <button class="btn-extract" id="extract-btn-${v.id}" disabled>
+                                            <div class="spinner" style="width:14px;height:14px;margin:0;border-width:2px;display:inline-block;vertical-align:middle"></div> Extracting...
+                                        </button>
+                                    </div>
                                 ` : `
                                     <div style="padding:0 16px 14px" id="extract-area-${v.id}">
                                         <button class="btn-extract" id="extract-btn-${v.id}" onclick="extractVideo(${v.id}, this)">
@@ -1311,6 +1317,14 @@
                     });
 
                     c.innerHTML = html;
+
+                    // Resume polling for any videos currently extracting
+                    data.videos.forEach(v => {
+                        if (v.extracting) {
+                            const btn = document.getElementById(`extract-btn-${v.id}`);
+                            if (btn) pollExtraction(v.id, btn);
+                        }
+                    });
 
                     // Auto-extract the first unprocessed video on initial load
                     if (firstUnprocessedId !== null && !userNavigated) {
@@ -1376,18 +1390,47 @@
             btn.innerHTML = `<div class="spinner" style="width:14px;height:14px;margin:0;border-width:2px"></div> Extracting...`;
             api(`/videos/${videoId}/extract`, 'POST')
                 .then(data => {
-                    btn.innerHTML = `${ICONS.check} ${data.insight_count} insights`;
-                    btn.style.background = 'var(--primary)';
-                    btn.style.color = 'white';
-                    btn.style.borderColor = 'var(--primary)';
-                    setTimeout(() => loadFeed(), 1200);
+                    if (data.status === 'extracting') {
+                        // Poll for completion
+                        pollExtraction(videoId, btn);
+                    } else {
+                        btn.innerHTML = `${ICONS.check} ${data.insight_count} insights`;
+                        btn.style.background = 'var(--primary)';
+                        btn.style.color = 'white';
+                        btn.style.borderColor = 'var(--primary)';
+                        setTimeout(() => loadFeed(), 1200);
+                    }
                 })
                 .catch(err => {
                     btn.innerHTML = `${ICONS.zap} Retry`;
                     btn.title = err.message;
                     btn.disabled = false;
-                    alert('Extraction failed: ' + err.message);
                 });
+        }
+
+        function pollExtraction(videoId, btn) {
+            const poll = () => {
+                api(`/videos/${videoId}/status`)
+                    .then(data => {
+                        if (data.status === 'done') {
+                            btn.innerHTML = `${ICONS.check} ${data.insight_count} insights`;
+                            btn.style.background = 'var(--primary)';
+                            btn.style.color = 'white';
+                            btn.style.borderColor = 'var(--primary)';
+                            setTimeout(() => loadFeed(), 1200);
+                        } else if (data.status === 'extracting') {
+                            setTimeout(poll, 3000);
+                        } else {
+                            btn.innerHTML = `${ICONS.zap} Retry`;
+                            btn.disabled = false;
+                        }
+                    })
+                    .catch(() => {
+                        btn.innerHTML = `${ICONS.zap} Retry`;
+                        btn.disabled = false;
+                    });
+            };
+            setTimeout(poll, 3000);
         }
 
         // --- PIPELINE ---
