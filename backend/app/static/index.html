@@ -1409,7 +1409,14 @@
         }
 
         function pollExtraction(videoId, btn) {
+            const startTime = Date.now();
+            const maxWait = 10 * 60 * 1000; // 10 min timeout
             const poll = () => {
+                if (Date.now() - startTime > maxWait) {
+                    btn.innerHTML = `${ICONS.zap} Retry`;
+                    btn.disabled = false;
+                    return;
+                }
                 api(`/videos/${videoId}/status`)
                     .then(data => {
                         if (data.status === 'done') {
@@ -1419,7 +1426,7 @@
                             btn.style.borderColor = 'var(--primary)';
                             setTimeout(() => loadFeed(), 1200);
                         } else if (data.status === 'extracting') {
-                            setTimeout(poll, 3000);
+                            setTimeout(poll, 5000);
                         } else {
                             btn.innerHTML = `${ICONS.zap} Retry`;
                             btn.disabled = false;
@@ -1430,7 +1437,7 @@
                         btn.disabled = false;
                     });
             };
-            setTimeout(poll, 3000);
+            setTimeout(poll, 5000);
         }
 
         // --- PIPELINE ---

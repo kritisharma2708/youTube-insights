@@ -413,6 +413,12 @@ def parse_claude_response(response_text: str) -> list[dict]:
 # Main extraction pipeline
 # ---------------------------------------------------------------------------
 
+def _fresh_db():
+    """Create a brand new DB session with a fresh connection."""
+    from app.database import SessionLocal
+    return SessionLocal()
+
+
 def extract_insights(db: Session, video_id: int) -> list[Insight]:
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
@@ -427,9 +433,12 @@ def extract_insights(db: Session, video_id: int) -> list[Insight]:
         transcript = video.transcript
     else:
         # These steps can take minutes (AssemblyAI transcription + Claude call)
+        # The DB connection WILL die during this wait on Neon PostgreSQL
         transcript = get_transcript(video)
-        # Cache transcript for future use — refresh connection first
-        db.expire_all()
+
+        # Close dead session, open fresh one to cache transcript
+        db.close()
+        db = _fresh_db()
         video = db.query(Video).filter(Video.id == video_id).first()
         video.transcript = transcript
         db.commit()
@@ -439,8 +448,9 @@ def extract_insights(db: Session, video_id: int) -> list[Insight]:
     response = call_claude(prompt)
     raw_insights = parse_claude_response(response)
 
-    # Refresh the DB session to get a fresh connection for saving
-    db.expire_all()
+    # Fresh session for saving insights (in case Claude call was also slow)
+    db.close()
+    db = _fresh_db()
     video = db.query(Video).filter(Video.id == video_id).first()
 
     insights = []
@@ -460,4 +470,5 @@ def extract_insights(db: Session, video_id: int) -> list[Insight]:
     video.processed = True
     video.extracting = False
     db.commit()
+    db.close()
     return insights
