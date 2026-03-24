@@ -406,10 +406,19 @@ def extract_insights(db: Session, video_id: int) -> list[Insight]:
     if not video:
         return []
 
+    # Grab what we need before the long-running operations
+    video_title = video.title
+
+    # These steps can take minutes (AssemblyAI transcription + Claude call)
+    # so the DB connection may drop during this time
     transcript = get_transcript(video)
-    prompt = EXTRACTION_PROMPT_TEMPLATE.format(title=video.title, transcript=transcript)
+    prompt = EXTRACTION_PROMPT_TEMPLATE.format(title=video_title, transcript=transcript)
     response = call_claude(prompt)
     raw_insights = parse_claude_response(response)
+
+    # Refresh the DB session to get a fresh connection for saving
+    db.expire_all()
+    video = db.query(Video).filter(Video.id == video_id).first()
 
     insights = []
     for i, raw in enumerate(raw_insights):
