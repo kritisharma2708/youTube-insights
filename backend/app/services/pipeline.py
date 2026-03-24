@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.services.fetcher import sync_all_channels
 from app.services.ranker import rank_videos
-from app.services.extractor import extract_insights, get_transcript
+from app.services.extractor import extract_insights, get_transcript, _parse_duration_minutes, MAX_VIDEO_DURATION_MINUTES
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,10 @@ def run_pipeline(db: Session, top_n: int = 5, extract: bool = False) -> dict:
     # Step 3: Pre-fetch transcripts for unprocessed videos (slow but runs in background)
     transcripts_cached = 0
     extract_limit = top_n or 10
-    unprocessed = [v for v in ranked if not v.processed][:extract_limit]
+    unprocessed = [
+        v for v in ranked
+        if not v.processed and _parse_duration_minutes(v.duration) <= MAX_VIDEO_DURATION_MINUTES
+    ][:extract_limit]
 
     for video in unprocessed:
         if video.transcript:

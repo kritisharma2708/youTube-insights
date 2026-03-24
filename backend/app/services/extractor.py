@@ -18,6 +18,21 @@ from app.models.models import Channel, Video, Insight
 
 logger = logging.getLogger(__name__)
 
+MAX_VIDEO_DURATION_MINUTES = 90
+
+
+def _parse_duration_minutes(iso_duration: str) -> float:
+    """Parse ISO 8601 duration (e.g. PT1H30M45S) to total minutes."""
+    if not iso_duration:
+        return 0.0
+    match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', iso_duration)
+    if not match:
+        return 0.0
+    hours = int(match.group(1) or 0)
+    minutes = int(match.group(2) or 0)
+    seconds = int(match.group(3) or 0)
+    return hours * 60 + minutes + seconds / 60.0
+
 EXTRACTION_PROMPT_TEMPLATE = (
     "You are an expert content analyst. Analyze the following video transcript "
     "and extract the most valuable insights.\n\n"
@@ -414,6 +429,13 @@ def parse_claude_response(response_text: str) -> list[dict]:
 # Main extraction pipeline
 # ---------------------------------------------------------------------------
 
+def _new_session():
+    """Create a truly fresh DB session by disposing the pool first."""
+    from app.database import engine
+    engine.dispose()  # Force all pooled connections to be discarded
+    return SessionLocal()
+
+
 def extract_insights(video_id: int) -> list[Insight]:
     """Extract insights for a video. Manages its own DB sessions to survive long waits."""
 
@@ -422,6 +444,13 @@ def extract_insights(video_id: int) -> list[Insight]:
     try:
         video = db.query(Video).filter(Video.id == video_id).first()
         if not video:
+            return []
+        # Skip videos longer than 90 minutes (avoids SSL timeouts on long transcriptions)
+        duration_mins = _parse_duration_minutes(video.duration)
+        if duration_mins > MAX_VIDEO_DURATION_MINUTES:
+            logger.info(f"Skipping video {video_id} ({video.title}) — {duration_mins:.0f} min exceeds {MAX_VIDEO_DURATION_MINUTES} min limit")
+            video.extracting = False
+            db.commit()
             return []
         video_title = video.title
         cached_transcript = video.transcript
@@ -444,8 +473,8 @@ def extract_insights(video_id: int) -> list[Insight]:
         finally:
             db.close()
 
-        # Cache transcript with a fresh session
-        db = SessionLocal()
+        # Cache transcript — dispose pool to guarantee a fresh connection
+        db = _new_session()
         try:
             video = db.query(Video).filter(Video.id == video_id).first()
             video.transcript = transcript
