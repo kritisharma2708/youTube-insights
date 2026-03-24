@@ -1158,6 +1158,7 @@
 
         // --- FEED ---
         let currentWeekStart = null; // null = current week
+        let userNavigated = false; // true when user explicitly changes week
 
         function toLocalDateStr(d) {
             // Format as YYYY-MM-DD using local timezone (avoids UTC shift from toISOString)
@@ -1176,7 +1177,7 @@
             return toLocalDateStr(monday);
         }
 
-        function changeWeek(direction) {
+        function changeWeek(direction, isAuto) {
             if (!currentWeekStart) {
                 currentWeekStart = getMondayOfCurrentWeek();
             }
@@ -1190,6 +1191,7 @@
             } else {
                 currentWeekStart = newStart;
             }
+            if (!isAuto) userNavigated = true;
             loadFeed();
         }
 
@@ -1243,31 +1245,32 @@
                                 ${chevronRight}
                             </button>
                         </div>
-                        <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:16px">
-                            <button class="btn-extract" onclick="loadFeed()" style="margin-top:0;font-size:11px;padding:6px 12px">
-                                ${ICONS.refresh} Refresh
-                            </button>
-                            <button class="btn-extract" onclick="runPipeline(this)" style="margin-top:0;font-size:11px;padding:6px 12px;border-color:var(--accent);color:var(--accent)">
-                                ${ICONS.zap} Fetch New
-                            </button>
-                        </div>
-                        <div class="pipeline-status" id="pipelineStatus" style="margin:-10px 0 14px"></div>
+                        <div class="pipeline-status" id="pipelineStatus" style="margin-bottom:14px"></div>
                     `;
 
                     if (data.videos.length === 0) {
+                        // Auto-navigate to previous week only on initial load
+                        if (week.has_previous_week && !userNavigated) {
+                            changeWeek(-1, true);
+                            return;
+                        }
                         html += `
                             <div class="empty-state">
                                 <p style="font-size:32px;margin-bottom:12px">&#128247;</p>
-                                <p style="font-size:16px;font-weight:600;color:var(--fg)">No videos this week</p>
-                                <p class="subtitle">${week.is_current_week ? 'Run the pipeline to fetch new videos.' : 'No videos were published this week.'}</p>
-                                ${week.is_current_week ? `<button class="btn-primary" style="margin-top:20px" onclick="runPipeline(this)">${ICONS.refresh} Run Pipeline</button>` : ''}
+                                <p style="font-size:16px;font-weight:600;color:var(--fg)">No videos yet</p>
+                                <p class="subtitle">Run the pipeline to fetch and process videos.</p>
+                                <button class="btn-primary" style="margin-top:20px" onclick="runPipeline(this)">${ICONS.refresh} Run Pipeline</button>
                             </div>`;
                         c.innerHTML = html;
                         return;
                     }
 
+                    let firstUnprocessedId = null;
                     data.videos.forEach((v, idx) => {
                         const hasInsights = v.insight_count > 0;
+                        if (!hasInsights && firstUnprocessedId === null) {
+                            firstUnprocessedId = v.id;
+                        }
                         html += `
                             <div class="feed-card animate-in" style="animation-delay:${idx * 60}ms">
                                 <div class="feed-card-header">
@@ -1308,6 +1311,12 @@
                     });
 
                     c.innerHTML = html;
+
+                    // Auto-extract the first unprocessed video on initial load
+                    if (firstUnprocessedId !== null && !userNavigated) {
+                        const btn = document.getElementById(`extract-btn-${firstUnprocessedId}`);
+                        if (btn) extractVideo(firstUnprocessedId, btn);
+                    }
                 })
                 .catch(err => {
                     c.innerHTML = `<div class="empty-state"><p>Failed to load feed</p><p class="subtitle">${err.message}</p>
