@@ -23,6 +23,7 @@ def _to_summary(v: Video) -> VideoSummary:
         rank_score=v.rank_score,
         channel_name=v.channel.name,
         insight_count=len(v.insights),
+        extracting=bool(v.extracting),
     )
 
 

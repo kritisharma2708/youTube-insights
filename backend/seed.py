@@ -15,6 +15,15 @@ with engine.connect() as conn:
         conn.execute(text("ALTER TABLE channels ADD COLUMN podcast_rss_url VARCHAR"))
         conn.commit()
         print("[MIGRATION] Added podcast_rss_url column to channels")
+    videos_cols = {c["name"] for c in inspector.get_columns("videos")}
+    if "transcript" not in videos_cols:
+        conn.execute(text("ALTER TABLE videos ADD COLUMN transcript TEXT"))
+        conn.commit()
+        print("[MIGRATION] Added transcript column to videos")
+    if "extracting" not in videos_cols:
+        conn.execute(text("ALTER TABLE videos ADD COLUMN extracting BOOLEAN DEFAULT FALSE"))
+        conn.commit()
+        print("[MIGRATION] Added extracting column to videos")
 db = SessionLocal()
 for ch in SEED_CHANNELS:
     existing = db.query(Channel).filter(Channel.youtube_handle == ch["youtube_handle"]).first()

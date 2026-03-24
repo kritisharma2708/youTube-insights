@@ -1158,6 +1158,7 @@
 
         // --- FEED ---
         let currentWeekStart = null; // null = current week
+        let userNavigated = false; // true when user explicitly changes week
 
         function toLocalDateStr(d) {
             // Format as YYYY-MM-DD using local timezone (avoids UTC shift from toISOString)
@@ -1176,7 +1177,7 @@
             return toLocalDateStr(monday);
         }
 
-        function changeWeek(direction) {
+        function changeWeek(direction, isAuto) {
             if (!currentWeekStart) {
                 currentWeekStart = getMondayOfCurrentWeek();
             }
@@ -1190,6 +1191,7 @@
             } else {
                 currentWeekStart = newStart;
             }
+            if (!isAuto) userNavigated = true;
             loadFeed();
         }
 
@@ -1243,31 +1245,32 @@
                                 ${chevronRight}
                             </button>
                         </div>
-                        <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:16px">
-                            <button class="btn-extract" onclick="loadFeed()" style="margin-top:0;font-size:11px;padding:6px 12px">
-                                ${ICONS.refresh} Refresh
-                            </button>
-                            <button class="btn-extract" onclick="runPipeline(this)" style="margin-top:0;font-size:11px;padding:6px 12px;border-color:var(--accent);color:var(--accent)">
-                                ${ICONS.zap} Fetch New
-                            </button>
-                        </div>
-                        <div class="pipeline-status" id="pipelineStatus" style="margin:-10px 0 14px"></div>
+                        <div class="pipeline-status" id="pipelineStatus" style="margin-bottom:14px"></div>
                     `;
 
                     if (data.videos.length === 0) {
+                        // Auto-navigate to previous week only on initial load
+                        if (week.has_previous_week && !userNavigated) {
+                            changeWeek(-1, true);
+                            return;
+                        }
                         html += `
                             <div class="empty-state">
                                 <p style="font-size:32px;margin-bottom:12px">&#128247;</p>
-                                <p style="font-size:16px;font-weight:600;color:var(--fg)">No videos this week</p>
-                                <p class="subtitle">${week.is_current_week ? 'Run the pipeline to fetch new videos.' : 'No videos were published this week.'}</p>
-                                ${week.is_current_week ? `<button class="btn-primary" style="margin-top:20px" onclick="runPipeline(this)">${ICONS.refresh} Run Pipeline</button>` : ''}
+                                <p style="font-size:16px;font-weight:600;color:var(--fg)">No videos yet</p>
+                                <p class="subtitle">Run the pipeline to fetch and process videos.</p>
+                                <button class="btn-primary" style="margin-top:20px" onclick="runPipeline(this)">${ICONS.refresh} Run Pipeline</button>
                             </div>`;
                         c.innerHTML = html;
                         return;
                     }
 
+                    let firstUnprocessedId = null;
                     data.videos.forEach((v, idx) => {
                         const hasInsights = v.insight_count > 0;
+                        if (!hasInsights && !v.extracting && firstUnprocessedId === null) {
+                            firstUnprocessedId = v.id;
+                        }
                         html += `
                             <div class="feed-card animate-in" style="animation-delay:${idx * 60}ms">
                                 <div class="feed-card-header">
@@ -1296,6 +1299,12 @@
                                         ${ICONS.chevron}
                                     </button>
                                     <div class="insights-panel" id="insights-panel-${v.id}" data-video-id="${v.id}" data-loaded="false"></div>
+                                ` : v.extracting ? `
+                                    <div style="padding:0 16px 14px" id="extract-area-${v.id}">
+                                        <button class="btn-extract" id="extract-btn-${v.id}" disabled>
+                                            <div class="spinner" style="width:14px;height:14px;margin:0;border-width:2px;display:inline-block;vertical-align:middle"></div> Extracting...
+                                        </button>
+                                    </div>
                                 ` : `
                                     <div style="padding:0 16px 14px" id="extract-area-${v.id}">
                                         <button class="btn-extract" id="extract-btn-${v.id}" onclick="extractVideo(${v.id}, this)">
@@ -1308,6 +1317,20 @@
                     });
 
                     c.innerHTML = html;
+
+                    // Resume polling for any videos currently extracting
+                    data.videos.forEach(v => {
+                        if (v.extracting) {
+                            const btn = document.getElementById(`extract-btn-${v.id}`);
+                            if (btn) pollExtraction(v.id, btn);
+                        }
+                    });
+
+                    // Auto-extract the first unprocessed video on initial load
+                    if (firstUnprocessedId !== null && !userNavigated) {
+                        const btn = document.getElementById(`extract-btn-${firstUnprocessedId}`);
+                        if (btn) extractVideo(firstUnprocessedId, btn);
+                    }
                 })
                 .catch(err => {
                     c.innerHTML = `<div class="empty-state"><p>Failed to load feed</p><p class="subtitle">${err.message}</p>
@@ -1367,18 +1390,47 @@
             btn.innerHTML = `<div class="spinner" style="width:14px;height:14px;margin:0;border-width:2px"></div> Extracting...`;
             api(`/videos/${videoId}/extract`, 'POST')
                 .then(data => {
-                    btn.innerHTML = `${ICONS.check} ${data.insight_count} insights`;
-                    btn.style.background = 'var(--primary)';
-                    btn.style.color = 'white';
-                    btn.style.borderColor = 'var(--primary)';
-                    setTimeout(() => loadFeed(), 1200);
+                    if (data.status === 'extracting') {
+                        // Poll for completion
+                        pollExtraction(videoId, btn);
+                    } else {
+                        btn.innerHTML = `${ICONS.check} ${data.insight_count} insights`;
+                        btn.style.background = 'var(--primary)';
+                        btn.style.color = 'white';
+                        btn.style.borderColor = 'var(--primary)';
+                        setTimeout(() => loadFeed(), 1200);
+                    }
                 })
                 .catch(err => {
                     btn.innerHTML = `${ICONS.zap} Retry`;
                     btn.title = err.message;
                     btn.disabled = false;
-                    alert('Extraction failed: ' + err.message);
                 });
+        }
+
+        function pollExtraction(videoId, btn) {
+            const poll = () => {
+                api(`/videos/${videoId}/status`)
+                    .then(data => {
+                        if (data.status === 'done') {
+                            btn.innerHTML = `${ICONS.check} ${data.insight_count} insights`;
+                            btn.style.background = 'var(--primary)';
+                            btn.style.color = 'white';
+                            btn.style.borderColor = 'var(--primary)';
+                            setTimeout(() => loadFeed(), 1200);
+                        } else if (data.status === 'extracting') {
+                            setTimeout(poll, 3000);
+                        } else {
+                            btn.innerHTML = `${ICONS.zap} Retry`;
+                            btn.disabled = false;
+                        }
+                    })
+                    .catch(() => {
+                        btn.innerHTML = `${ICONS.zap} Retry`;
+                        btn.disabled = false;
+                    });
+            };
+            setTimeout(poll, 3000);
         }
 
         // --- PIPELINE ---
