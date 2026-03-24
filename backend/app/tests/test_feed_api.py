@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.models.models import Channel, Video, Insight
 
@@ -14,23 +14,25 @@ def test_feed_empty(client):
     assert response.status_code == 200
     data = response.json()
     assert data["videos"] == []
-    assert data["page"] == 1
+    assert "week" in data
+    assert data["week"]["is_current_week"] is True
 
 
-def test_feed_returns_top_5(client, db_session):
+def test_feed_returns_current_week_videos(client, db_session):
     channel = Channel(name="Test", youtube_handle="@top5", youtube_channel_id="UCT5")
     db_session.add(channel)
     db_session.commit()
 
+    now = datetime.now(timezone.utc)
     for i in range(10):
         video = Video(
             channel_id=channel.id,
             youtube_video_id=f"top{i}",
             title=f"Video {i}",
-            published_at=datetime.now(timezone.utc),
+            published_at=now - timedelta(hours=i),
             views=(i + 1) * 1000,
             rank_score=float(i),
-            processed=(i % 2 == 0),  # mix of processed and unprocessed
+            processed=(i % 2 == 0),
         )
         db_session.add(video)
     db_session.commit()
@@ -38,10 +40,69 @@ def test_feed_returns_top_5(client, db_session):
     response = client.get("/api/feed")
     assert response.status_code == 200
     data = response.json()
-    assert len(data["videos"]) == 5
+    # All 10 videos are from this week (created just now)
+    assert len(data["videos"]) == 10
     # Should be sorted by rank_score desc
     scores = [v["rank_score"] for v in data["videos"]]
     assert scores == sorted(scores, reverse=True)
+    # Week metadata
+    assert data["week"]["is_current_week"] is True
+    assert data["week"]["total_videos"] == 10
+
+
+def test_feed_week_start_param(client, db_session):
+    channel = Channel(name="Test", youtube_handle="@wk", youtube_channel_id="UCW1")
+    db_session.add(channel)
+    db_session.commit()
+
+    # Create a video last week
+    last_monday = datetime.now(timezone.utc) - timedelta(days=7)
+    # Snap to Monday
+    last_monday = last_monday - timedelta(days=last_monday.weekday())
+    last_monday = last_monday.replace(hour=12, minute=0, second=0, microsecond=0)
+
+    video = Video(
+        channel_id=channel.id,
+        youtube_video_id="lastweek1",
+        title="Last Week Video",
+        published_at=last_monday,
+        rank_score=5.0,
+        processed=False,
+    )
+    db_session.add(video)
+    db_session.commit()
+
+    # Query with last week's Monday
+    week_start = last_monday.strftime("%Y-%m-%d")
+    response = client.get(f"/api/feed?week_start={week_start}")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["videos"]) == 1
+    assert data["videos"][0]["title"] == "Last Week Video"
+    assert data["week"]["is_current_week"] is False
+
+
+def test_feed_has_previous_week(client, db_session):
+    channel = Channel(name="Test", youtube_handle="@prev", youtube_channel_id="UCP1")
+    db_session.add(channel)
+    db_session.commit()
+
+    # A video from two weeks ago
+    old_date = datetime.now(timezone.utc) - timedelta(days=14)
+    video = Video(
+        channel_id=channel.id,
+        youtube_video_id="old1",
+        title="Old Video",
+        published_at=old_date,
+        rank_score=3.0,
+    )
+    db_session.add(video)
+    db_session.commit()
+
+    # Current week feed should show has_previous_week=True
+    response = client.get("/api/feed")
+    data = response.json()
+    assert data["week"]["has_previous_week"] is True
 
 
 def test_feed_includes_unprocessed(client, db_session):

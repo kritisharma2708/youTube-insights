@@ -65,3 +65,18 @@ class FeedResponse(BaseModel):
     videos: List[VideoSummary]
     page: int
     total_pages: int
+
+
+class WeekSummary(BaseModel):
+    week_start: str
+    week_end: str
+    week_label: str
+    total_videos: int
+    videos_with_insights: int
+    has_previous_week: bool
+    is_current_week: bool
+
+
+class WeekFeedResponse(BaseModel):
+    videos: List[VideoSummary]
+    week: WeekSummary

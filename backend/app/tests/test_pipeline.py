@@ -34,7 +34,7 @@ def test_pipeline_fetches_ranks_extracts(mock_sync, mock_rank, mock_extract, db_
     result = run_pipeline(db_session, top_n=3, extract=True)
 
     mock_sync.assert_called_once_with(db_session)
-    mock_rank.assert_called_once_with(db_session, top_n=3)
+    mock_rank.assert_called_once_with(db_session, top_n=None)
     assert mock_extract.call_count == 3
     assert result["videos_fetched"] == 5
     assert result["videos_processed"] == 3

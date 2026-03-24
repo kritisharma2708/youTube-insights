@@ -15,19 +15,23 @@ def run_pipeline(db: Session, top_n: int = 5, extract: bool = False) -> dict:
     new_videos = sync_all_channels(db)
     logger.info(f"Fetched {len(new_videos)} new videos")
 
-    # Step 2: Rank all videos
-    ranked = rank_videos(db, top_n=top_n)
-    logger.info(f"Top {len(ranked)} ranked videos selected")
+    # Step 2: Rank ALL videos (ranking is cheap — just a DB query)
+    ranked = rank_videos(db, top_n=None)
+    logger.info(f"Ranked {len(ranked)} total videos")
 
     # Step 3: Extract insights only if requested (slow — calls Claude per video)
+    # Process unprocessed videos from the ranked list, up to extract_limit
+    extract_limit = top_n or 10
     processed = 0
     already = 0
     if extract:
         for video in ranked:
             if video.processed:
                 already += 1
-                logger.info(f"Skipping already processed: {video.title}")
                 continue
+
+            if processed >= extract_limit:
+                break
 
             try:
                 insights = extract_insights(db, video.id)
