@@ -18,7 +18,7 @@ from app.models.models import Channel, Video, Insight
 
 logger = logging.getLogger(__name__)
 
-MAX_VIDEO_DURATION_MINUTES = 90
+MAX_VIDEO_DURATION_MINUTES = 120
 
 
 def _parse_duration_minutes(iso_duration: str) -> float:
