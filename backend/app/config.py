@@ -10,6 +10,7 @@ CLIPS_STORAGE_PATH = os.getenv("CLIPS_STORAGE_PATH", "./clips")
 APP_API_KEY = os.getenv("APP_API_KEY", "")
 TRANSCRIPT_PROXY_URL = os.getenv("TRANSCRIPT_PROXY_URL", "")
 ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY", "")
+WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "")
 
 SEED_CHANNELS = [
     {

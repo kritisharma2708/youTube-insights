@@ -12,7 +12,7 @@ import requests
 from youtube_transcript_api import YouTubeTranscriptApi
 from sqlalchemy.orm import Session
 
-from app.config import ANTHROPIC_API_KEY, ASSEMBLYAI_API_KEY, TRANSCRIPT_PROXY_URL
+from app.config import ANTHROPIC_API_KEY, ASSEMBLYAI_API_KEY, TRANSCRIPT_PROXY_URL, WEBHOOK_BASE_URL
 from app.database import SessionLocal
 from app.models.models import Channel, Video, Insight
 
@@ -136,8 +136,11 @@ def _transcript_via_podcast(video: Video) -> str:
     transcript_id = resp.json()["id"]
     print(f"[METHOD 1] Transcript ID: {transcript_id}, polling...", flush=True)
 
-    # Poll for completion
-    for _ in range(240):  # max ~20 min
+    # Poll for completion — scale timeout with audio length
+    # Base: 20 min for short videos, add ~15 min per hour of content
+    duration_mins = _parse_duration_minutes(video.duration) if video.duration else 0
+    max_polls = 240 + int(duration_mins / 60) * 180
+    for _ in range(max_polls):
         poll = requests.get(
             f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
             headers=headers,
@@ -154,6 +157,13 @@ def _transcript_via_podcast(video: Video) -> str:
         raise RuntimeError("AssemblyAI transcription timed out")
 
     # Step 4: Format transcript with timestamps
+    transcript = format_assemblyai_transcript(data)
+    print(f"[METHOD 1] Transcription complete", flush=True)
+    return transcript
+
+
+def format_assemblyai_transcript(data: dict) -> str:
+    """Format AssemblyAI response data into timestamped transcript."""
     parts = []
     words = data.get("words", [])
     if words:
@@ -173,9 +183,45 @@ def _transcript_via_podcast(video: Video) -> str:
 
     if not parts:
         raise RuntimeError("AssemblyAI returned empty transcript")
-
-    print(f"[METHOD 1] Transcription complete: {len(parts)} segments", flush=True)
     return "\n".join(parts)
+
+
+def submit_assemblyai_transcription(video: Video) -> str:
+    """Submit audio to AssemblyAI with webhook callback. Returns transcript_id."""
+    channel = video.channel
+    if not channel or not channel.podcast_rss_url:
+        raise RuntimeError("Channel has no podcast RSS URL")
+    if not ASSEMBLYAI_API_KEY:
+        raise RuntimeError("ASSEMBLYAI_API_KEY not set")
+    if not WEBHOOK_BASE_URL:
+        raise RuntimeError("WEBHOOK_BASE_URL not set")
+
+    print(f"[WEBHOOK] Submitting to AssemblyAI with webhook for: {video.title}", flush=True)
+
+    feed = feedparser.parse(channel.podcast_rss_url)
+    if not feed.entries:
+        raise RuntimeError("RSS feed has no entries")
+
+    audio_url = _find_matching_episode(video.title, feed.entries)
+    if not audio_url:
+        raise RuntimeError(f"No matching podcast episode found for: {video.title}")
+
+    webhook_url = f"{WEBHOOK_BASE_URL.rstrip('/')}/api/webhooks/assemblyai"
+    headers = {"authorization": ASSEMBLYAI_API_KEY}
+    resp = requests.post(
+        "https://api.assemblyai.com/v2/transcript",
+        json={
+            "audio_url": audio_url,
+            "speech_models": ["universal-2"],
+            "webhook_url": webhook_url,
+        },
+        headers=headers,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    transcript_id = resp.json()["id"]
+    print(f"[WEBHOOK] Submitted, transcript_id={transcript_id}", flush=True)
+    return transcript_id
 
 
 def _find_matching_episode(video_title: str, entries: list) -> str:
@@ -373,15 +419,33 @@ def get_transcript(video: Video) -> str:
         print(f"[TRANSCRIPT] youtube-transcript-api failed: {e}", flush=True)
         errors.append(f"youtube-transcript-api: {e}")
 
-    # Method 2: Podcast RSS + AssemblyAI (slow but works on cloud)
+    # Method 2: Podcast RSS + AssemblyAI
     if video.channel and video.channel.podcast_rss_url and ASSEMBLYAI_API_KEY:
-        try:
-            transcript = _transcript_via_podcast(video)
-            print(f"[TRANSCRIPT] Success with podcast RSS + AssemblyAI!", flush=True)
-            return transcript
-        except Exception as e:
-            print(f"[TRANSCRIPT] podcast failed: {e}", flush=True)
-            errors.append(f"podcast: {e}")
+        if WEBHOOK_BASE_URL:
+            # Webhook mode: submit and return None (webhook will complete the pipeline)
+            try:
+                transcript_id = submit_assemblyai_transcription(video)
+                db = SessionLocal()
+                try:
+                    v = db.query(Video).filter(Video.id == video.id).first()
+                    v.assemblyai_transcript_id = transcript_id
+                    v.extracting = True
+                    db.commit()
+                finally:
+                    db.close()
+                return None  # Signal: webhook will handle the rest
+            except Exception as e:
+                print(f"[TRANSCRIPT] assemblyai-webhook failed: {e}", flush=True)
+                errors.append(f"assemblyai-webhook: {e}")
+        else:
+            # Polling fallback (local dev without webhook URL)
+            try:
+                transcript = _transcript_via_podcast(video)
+                print(f"[TRANSCRIPT] Success with podcast RSS + AssemblyAI!", flush=True)
+                return transcript
+            except Exception as e:
+                print(f"[TRANSCRIPT] podcast failed: {e}", flush=True)
+                errors.append(f"podcast: {e}")
 
     # Method 3: Direct HTML parsing
     try:
@@ -445,14 +509,8 @@ def extract_insights(video_id: int) -> list[Insight]:
         video = db.query(Video).filter(Video.id == video_id).first()
         if not video:
             return []
-        # Skip videos longer than 90 minutes (avoids SSL timeouts on long transcriptions)
-        duration_mins = _parse_duration_minutes(video.duration)
-        if duration_mins > MAX_VIDEO_DURATION_MINUTES:
-            logger.info(f"Skipping video {video_id} ({video.title}) — {duration_mins:.0f} min exceeds {MAX_VIDEO_DURATION_MINUTES} min limit")
-            video.extracting = False
-            db.commit()
-            return []
         video_title = video.title
+        duration_mins = _parse_duration_minutes(video.duration)
         cached_transcript = video.transcript
         # Load channel info while session is alive (needed by get_transcript)
         channel = video.channel
@@ -472,6 +530,11 @@ def extract_insights(video_id: int) -> list[Insight]:
             transcript = get_transcript(video)
         finally:
             db.close()
+
+        if transcript is None:
+            # AssemblyAI webhook submitted — pipeline will resume from webhook
+            print(f"[EXTRACT] AssemblyAI webhook submitted for video {video_id}, pausing pipeline", flush=True)
+            return []
 
         # Cache transcript — dispose pool to guarantee a fresh connection
         db = _new_session()
@@ -512,3 +575,35 @@ def extract_insights(video_id: int) -> list[Insight]:
         return insights
     finally:
         db.close()
+
+
+def resume_extraction_after_webhook(video_id: int, transcript: str):
+    """Called by webhook handler after AssemblyAI delivers the transcript."""
+    # Cache the transcript and clear the pending transcript ID
+    db = _new_session()
+    try:
+        video = db.query(Video).filter(Video.id == video_id).first()
+        if not video:
+            logger.error(f"[WEBHOOK] Video {video_id} not found")
+            return
+        video.transcript = transcript
+        video.assemblyai_transcript_id = None
+        db.commit()
+        print(f"[WEBHOOK] Cached transcript for video {video_id} ({len(transcript)} chars)", flush=True)
+    finally:
+        db.close()
+
+    # Run Claude extraction — it will find the cached transcript and skip fetching
+    try:
+        extract_insights(video_id)
+        logger.info(f"[WEBHOOK] Extraction complete for video {video_id}")
+    except Exception as e:
+        logger.error(f"[WEBHOOK] Extraction failed for video {video_id}: {e}")
+        db2 = SessionLocal()
+        try:
+            video = db2.query(Video).filter(Video.id == video_id).first()
+            if video:
+                video.extracting = False
+                db2.commit()
+        finally:
+            db2.close()

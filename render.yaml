@@ -14,5 +14,11 @@ services:
         sync: false
       - key: TRANSCRIPT_PROXY_URL
         value: https://yt-proxy.sharmakriti275.workers.dev
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: WEBHOOK_BASE_URL
+        value: https://youtube-insights-bgw2.onrender.com
       - key: PYTHON_VERSION
         value: 3.11.7

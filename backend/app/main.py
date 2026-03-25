@@ -11,7 +11,7 @@ from sqlalchemy import inspect, text
 
 from app.config import APP_API_KEY
 from app.database import Base, engine
-from app.routers import feed, pipeline, videos
+from app.routers import feed, pipeline, videos, webhooks
 from app.services.scheduler import start_scheduler, stop_scheduler
 
 Base.metadata.create_all(bind=engine)
@@ -24,6 +24,12 @@ with engine.connect() as conn:
         conn.execute(text("ALTER TABLE channels ADD COLUMN podcast_rss_url VARCHAR"))
         conn.commit()
         print("[MIGRATION] Added podcast_rss_url column to channels")
+
+    videos_cols = {c["name"] for c in inspector.get_columns("videos")}
+    if "assemblyai_transcript_id" not in videos_cols:
+        conn.execute(text("ALTER TABLE videos ADD COLUMN assemblyai_transcript_id VARCHAR"))
+        conn.commit()
+        print("[MIGRATION] Added assemblyai_transcript_id column to videos")
 
 
 @asynccontextmanager
@@ -67,6 +73,8 @@ app.include_router(
 app.include_router(
     pipeline.router, prefix="/api", tags=["pipeline"], dependencies=[Depends(verify_api_key)]
 )
+# Webhook routes — no API key (AssemblyAI can't send one)
+app.include_router(webhooks.router, prefix="/api", tags=["webhooks"])
 
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")

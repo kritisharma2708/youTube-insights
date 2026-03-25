@@ -36,6 +36,7 @@ class Video(Base):
     processed = Column(Boolean, default=False)
     extracting = Column(Boolean, default=False)
     transcript = Column(Text, nullable=True)
+    assemblyai_transcript_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     channel = relationship("Channel", back_populates="videos")

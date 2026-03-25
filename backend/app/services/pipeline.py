@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.services.fetcher import sync_all_channels
 from app.services.ranker import rank_videos
-from app.services.extractor import extract_insights, get_transcript, _parse_duration_minutes, MAX_VIDEO_DURATION_MINUTES
+from app.services.extractor import extract_insights, get_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +24,22 @@ def run_pipeline(db: Session, top_n: int = 5, extract: bool = False) -> dict:
     extract_limit = top_n or 10
     unprocessed = [
         v for v in ranked
-        if not v.processed and _parse_duration_minutes(v.duration) <= MAX_VIDEO_DURATION_MINUTES
+        if not v.processed
     ][:extract_limit]
 
     for video in unprocessed:
         if video.transcript:
             continue
+        if video.assemblyai_transcript_id:
+            # Already submitted to AssemblyAI, waiting for webhook
+            logger.info(f"Skipping {video.title} — awaiting AssemblyAI webhook")
+            continue
         try:
             transcript = get_transcript(video)
+            if transcript is None:
+                # Webhook submitted — don't try to cache
+                logger.info(f"AssemblyAI webhook submitted for: {video.title}")
+                continue
             # Refresh connection in case it went stale during long transcription
             db.expire_all()
             from app.models.models import Video
@@ -51,7 +59,8 @@ def run_pipeline(db: Session, top_n: int = 5, extract: bool = False) -> dict:
             if video.processed:
                 already += 1
                 continue
-
+            if video.assemblyai_transcript_id and not video.transcript:
+                continue  # Awaiting webhook
             if processed >= extract_limit:
                 break
 
