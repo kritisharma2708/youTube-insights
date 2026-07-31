@@ -67,7 +67,11 @@ def generate_clips_for_video(db: Session, video_id: int) -> None:
         return
 
     for insight in video.insights:
-        if insight.clip_url:
+        # clip_url holds a filesystem path, and on Render that filesystem is
+        # ephemeral while the database is not. After a redeploy the row still
+        # points at a file that no longer exists, so trusting clip_url alone
+        # would skip the insight forever. Regenerate when the file is gone.
+        if insight.clip_url and os.path.exists(insight.clip_url):
             continue
 
         clip_path = generate_clip(
