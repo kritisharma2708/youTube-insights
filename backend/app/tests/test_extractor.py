@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 from datetime import datetime, timezone
 
 from app.models.models import Channel, Video
-from app.services.extractor import extract_insights, parse_claude_response
+from app.services.extractor import extract_insights, parse_llm_response
 
 
 SAMPLE_CLAUDE_RESPONSE = json.dumps({
@@ -32,8 +32,8 @@ SAMPLE_CLAUDE_RESPONSE = json.dumps({
 })
 
 
-def test_parse_claude_response():
-    insights = parse_claude_response(SAMPLE_CLAUDE_RESPONSE)
+def test_parse_llm_response():
+    insights = parse_llm_response(SAMPLE_CLAUDE_RESPONSE)
     assert len(insights) == 3
     assert insights[0]["category"] == "takeaway"
     assert insights[1]["category"] == "action"
@@ -41,18 +41,18 @@ def test_parse_claude_response():
     assert insights[0]["start_timestamp"] == 120.0
 
 
-def test_parse_claude_response_invalid_json():
-    insights = parse_claude_response("not json")
+def test_parse_llm_response_invalid_json():
+    insights = parse_llm_response("not json")
     assert insights == []
 
 
-def test_parse_claude_response_missing_insights():
-    insights = parse_claude_response(json.dumps({"video_type": "podcast"}))
+def test_parse_llm_response_missing_insights():
+    insights = parse_llm_response(json.dumps({"video_type": "podcast"}))
     assert insights == []
 
 
 @patch("app.services.extractor.get_transcript")
-@patch("app.services.extractor.call_claude")
+@patch("app.services.extractor.call_llm")
 def test_extract_insights(mock_claude, mock_transcript, db_session):
     channel = Channel(name="Test", youtube_handle="@ext", youtube_channel_id="UCE1")
     db_session.add(channel)

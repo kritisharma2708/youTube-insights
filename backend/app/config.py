@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./insightclips.db")
 CLIPS_STORAGE_PATH = os.getenv("CLIPS_STORAGE_PATH", "./clips")
 APP_API_KEY = os.getenv("APP_API_KEY", "")

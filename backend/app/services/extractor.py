@@ -6,13 +6,13 @@ from difflib import SequenceMatcher
 
 import time
 
-import anthropic
 import feedparser
+import openai
 import requests
 from youtube_transcript_api import YouTubeTranscriptApi
 from sqlalchemy.orm import Session
 
-from app.config import ANTHROPIC_API_KEY, ASSEMBLYAI_API_KEY, TRANSCRIPT_PROXY_URL, WEBHOOK_BASE_URL
+from app.config import OPENAI_API_KEY, ASSEMBLYAI_API_KEY, TRANSCRIPT_PROXY_URL, WEBHOOK_BASE_URL
 from app.database import SessionLocal
 from app.models.models import Channel, Video, Insight
 
@@ -462,33 +462,41 @@ def get_transcript(video: Video) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Claude analysis
+# LLM analysis
 # ---------------------------------------------------------------------------
 
-# 4096 truncated the JSON mid-object on long transcripts, which parsed as
-# zero insights. Haiku 4.5 allows far more; this stays well under the
-# non-streaming timeout ceiling.
-CLAUDE_MAX_TOKENS = 16000
+# Change this one line to move models. Transcripts run ~30k tokens, so the
+# model needs a large context window.
+OPENAI_MODEL = "gpt-4o-mini"
+
+# 4096 truncated the JSON mid-object on long transcripts, which parsed as zero
+# insights. This stays well under the non-streaming timeout ceiling.
+LLM_MAX_TOKENS = 16000
 
 
-def call_claude(prompt: str) -> str:
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    message = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=CLAUDE_MAX_TOKENS,
+def call_llm(prompt: str) -> str:
+    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    response = client.chat.completions.create(
+        model=OPENAI_MODEL,
+        max_tokens=LLM_MAX_TOKENS,
+        # Guarantees syntactically valid JSON, which removes the failure mode
+        # that silently produced zero insights. The prompt already says
+        # "Respond in JSON format", which this mode requires.
+        response_format={"type": "json_object"},
         messages=[{"role": "user", "content": prompt}],
     )
-    # A truncated response is still valid JSON-ish text that fails to parse and
-    # silently yields no insights. Fail loudly instead so the caller can retry.
-    if message.stop_reason == "max_tokens":
+    choice = response.choices[0]
+    # Truncated output is still parseable-looking text that yields no insights.
+    # Fail loudly instead so the caller can retry.
+    if choice.finish_reason == "length":
         raise RuntimeError(
-            f"Claude hit the {CLAUDE_MAX_TOKENS}-token output cap; the JSON is "
-            "truncated. Raise CLAUDE_MAX_TOKENS or shorten the transcript."
+            f"Model hit the {LLM_MAX_TOKENS}-token output cap; the JSON is "
+            "truncated. Raise LLM_MAX_TOKENS or shorten the transcript."
         )
-    return message.content[0].text
+    return choice.message.content or ""
 
 
-def parse_claude_response(response_text: str) -> list[dict]:
+def parse_llm_response(response_text: str) -> list[dict]:
     text = response_text.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1]
@@ -501,7 +509,7 @@ def parse_claude_response(response_text: str) -> list[dict]:
         # Never swallow this silently — an unparseable response used to look
         # identical to "this video genuinely had no insights".
         print(
-            f"[EXTRACT] Claude response was not valid JSON ({e}). "
+            f"[EXTRACT] LLM response was not valid JSON ({e}). "
             f"Length={len(text)}. First 500 chars: {text[:500]!r}",
             flush=True,
         )
@@ -566,12 +574,12 @@ def extract_insights(video_id: int) -> list[Insight]:
         finally:
             db.close()
 
-    # Step 3: Call Claude (quick, ~10s)
+    # Step 3: Call the LLM (quick, ~10s)
     prompt = EXTRACTION_PROMPT_TEMPLATE.format(title=video_title, transcript=transcript)
-    response = call_claude(prompt)
-    raw_insights = parse_claude_response(response)
+    response = call_llm(prompt)
+    raw_insights = parse_llm_response(response)
 
-    # Claude gave us nothing usable. Leave processed=False so the video stays
+    # The LLM gave us nothing usable. Leave processed=False so the video stays
     # retryable: marking it done here would lock it at zero insights forever
     # behind the "Already processed" guard in POST /videos/{id}/extract.
     if not raw_insights:
@@ -584,7 +592,7 @@ def extract_insights(video_id: int) -> list[Insight]:
         finally:
             db.close()
         raise RuntimeError(
-            f"Claude returned no insights for video {video_id}; leaving it "
+            f"LLM returned no insights for video {video_id}; leaving it "
             "unprocessed so it can be retried"
         )
 
@@ -630,7 +638,7 @@ def resume_extraction_after_webhook(video_id: int, transcript: str):
     finally:
         db.close()
 
-    # Run Claude extraction — it will find the cached transcript and skip fetching
+    # Run extraction — it will find the cached transcript and skip fetching
     try:
         extract_insights(video_id)
         logger.info(f"[WEBHOOK] Extraction complete for video {video_id}")
