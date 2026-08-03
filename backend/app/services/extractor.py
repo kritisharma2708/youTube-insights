@@ -465,13 +465,26 @@ def get_transcript(video: Video) -> str:
 # Claude analysis
 # ---------------------------------------------------------------------------
 
+# 4096 truncated the JSON mid-object on long transcripts, which parsed as
+# zero insights. Haiku 4.5 allows far more; this stays well under the
+# non-streaming timeout ceiling.
+CLAUDE_MAX_TOKENS = 16000
+
+
 def call_claude(prompt: str) -> str:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     message = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=4096,
+        max_tokens=CLAUDE_MAX_TOKENS,
         messages=[{"role": "user", "content": prompt}],
     )
+    # A truncated response is still valid JSON-ish text that fails to parse and
+    # silently yields no insights. Fail loudly instead so the caller can retry.
+    if message.stop_reason == "max_tokens":
+        raise RuntimeError(
+            f"Claude hit the {CLAUDE_MAX_TOKENS}-token output cap; the JSON is "
+            "truncated. Raise CLAUDE_MAX_TOKENS or shorten the transcript."
+        )
     return message.content[0].text
 
 
@@ -484,7 +497,14 @@ def parse_claude_response(response_text: str) -> list[dict]:
     text = text.strip()
     try:
         data = json.loads(text)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        # Never swallow this silently — an unparseable response used to look
+        # identical to "this video genuinely had no insights".
+        print(
+            f"[EXTRACT] Claude response was not valid JSON ({e}). "
+            f"Length={len(text)}. First 500 chars: {text[:500]!r}",
+            flush=True,
+        )
         return []
     return data.get("insights", [])
 
@@ -550,6 +570,23 @@ def extract_insights(video_id: int) -> list[Insight]:
     prompt = EXTRACTION_PROMPT_TEMPLATE.format(title=video_title, transcript=transcript)
     response = call_claude(prompt)
     raw_insights = parse_claude_response(response)
+
+    # Claude gave us nothing usable. Leave processed=False so the video stays
+    # retryable: marking it done here would lock it at zero insights forever
+    # behind the "Already processed" guard in POST /videos/{id}/extract.
+    if not raw_insights:
+        db = SessionLocal()
+        try:
+            video = db.query(Video).filter(Video.id == video_id).first()
+            if video:
+                video.extracting = False
+                db.commit()
+        finally:
+            db.close()
+        raise RuntimeError(
+            f"Claude returned no insights for video {video_id}; leaving it "
+            "unprocessed so it can be retried"
+        )
 
     # Step 4: Save insights with a fresh session
     db = SessionLocal()

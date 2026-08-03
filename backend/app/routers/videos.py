@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db, SessionLocal
-from app.models.models import Video
+from app.models.models import Insight, Video
 from app.schemas.schemas import VideoResponse
 from app.services.extractor import extract_insights
 from app.services.clip_generator import generate_clips_for_video
@@ -56,14 +56,24 @@ def get_video(video_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/videos/{video_id}/extract")
-def extract_video_insights(video_id: int, db: Session = Depends(get_db)):
+def extract_video_insights(
+    video_id: int, force: bool = False, db: Session = Depends(get_db)
+):
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    if video.processed:
+    if video.processed and not force:
         return {"message": "Already processed", "insight_count": len(video.insights)}
     if video.extracting:
         return {"message": "Extraction in progress", "status": "extracting"}
+
+    if force:
+        # Clear the previous result so extraction re-runs from scratch. Existing
+        # insights are deleted first, otherwise a re-run appends duplicates.
+        db.query(Insight).filter(Insight.video_id == video.id).delete()
+        video.processed = False
+        db.commit()
+        logger.info(f"Force re-extraction requested for video {video_id}")
 
     # Start extraction in background thread
     thread = threading.Thread(target=_extract_in_background, args=(video_id,), daemon=True)

@@ -1,3 +1,4 @@
+import os
 from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone
 
@@ -60,7 +61,7 @@ def test_generate_clips_for_video(mock_gen_clip, db_session):
 
 
 @patch("app.services.clip_generator.generate_clip")
-def test_generate_clips_skips_existing(mock_gen_clip, db_session):
+def test_generate_clips_skips_existing(mock_gen_clip, db_session, tmp_path):
     channel = Channel(name="Test", youtube_handle="@skip", youtube_channel_id="UCC2")
     db_session.add(channel)
     db_session.commit()
@@ -81,10 +82,50 @@ def test_generate_clips_skips_existing(mock_gen_clip, db_session):
         start_timestamp=0.0,
         end_timestamp=30.0,
         order=0,
-        clip_url="/existing/clip.mp4",
+        clip_url=str(tmp_path / "existing_clip.mp4"),
     )
+    # The skip is conditional on the file actually being present on disk, so the
+    # fixture has to create it. A clip_url pointing at a missing file means the
+    # clip was lost (ephemeral disk) and must be regenerated.
+    (tmp_path / "existing_clip.mp4").write_bytes(b"fake mp4")
     db_session.add(insight)
     db_session.commit()
 
     generate_clips_for_video(db_session, video.id)
     mock_gen_clip.assert_not_called()
+
+
+@patch("app.services.clip_generator.generate_clip")
+def test_generate_clips_regenerates_when_file_missing(mock_gen_clip, db_session, tmp_path):
+    """A clip_url whose file is gone (ephemeral disk after redeploy) must regenerate."""
+    missing = tmp_path / "vanished_clip.mp4"
+    mock_gen_clip.return_value = str(missing)
+
+    channel = Channel(name="Test", youtube_handle="@gone", youtube_channel_id="UCC3")
+    db_session.add(channel)
+    db_session.commit()
+
+    video = Video(
+        channel_id=channel.id,
+        youtube_video_id="gonevid",
+        title="Missing File Test",
+        published_at=datetime.now(timezone.utc),
+    )
+    db_session.add(video)
+    db_session.commit()
+
+    insight = Insight(
+        video_id=video.id,
+        insight_text="Clip file was wiped",
+        category="takeaway",
+        start_timestamp=0.0,
+        end_timestamp=30.0,
+        order=0,
+        clip_url=str(missing),
+    )
+    db_session.add(insight)
+    db_session.commit()
+
+    assert not os.path.exists(missing)
+    generate_clips_for_video(db_session, video.id)
+    mock_gen_clip.assert_called_once()
